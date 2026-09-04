@@ -1,0 +1,42 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "skillrecall"
+version = "0.1.0"
+description = "Assess an agent skill for how reliably it gets picked when installed alongside other skills, and get ranked edits to improve it."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+authors = [{ name = "Chetan Conikee" }]
+keywords = ["agent-skills", "skills", "assessment", "retrieval", "claude-code", "codex", "cursor"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Topic :: Software Development :: Quality Assurance",
+]
+dependencies = []
+
+[project.optional-dependencies]
+tokens = ["tiktoken>=0.7"]
+dense = ["fastembed>=0.3"]
+router = ["anthropic>=1.0"]
+all = ["tiktoken>=0.7", "fastembed>=0.3", "anthropic>=1.0"]
+dev = ["pytest>=8"]
+
+[project.scripts]
+skillrecall = "skillrecall.cli:main"
+
+[project.urls]
+Documentation = "https://github.com/modiqo/skillrecall#readme"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/skillrecall"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/skillrecall", "README.md", "ALGORITHM.md", "LICENSE", "pyproject.toml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
