@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
 
 from .skill import BODY_LINE_CAP, Skill
 
@@ -87,9 +87,23 @@ def structure_findings(skill: Skill, neighbour_description_tokens: Sequence[int]
 
     # Body roles.
     if not any(_WHEN.search(h) for h in headings):
-        out.append(Finding("body", "fix", "No “When to use” section.", "Add one with three to eight example requests and the situations that do not apply."))
+        out.append(
+            Finding(
+                "body",
+                "fix",
+                "No “When to use” section.",
+                "Add one with three to eight example requests and the situations that do not apply.",
+            )
+        )
     if not any(_PROCEDURE.search(h) for h in headings):
-        out.append(Finding("body", "consider", "No procedure or steps section.", "Add the ordered steps an agent should follow once the skill is selected."))
+        out.append(
+            Finding(
+                "body",
+                "consider",
+                "No procedure or steps section.",
+                "Add the ordered steps an agent should follow once the skill is selected.",
+            )
+        )
     if not any(_CAVEATS.search(h) for h in headings) and not re.search(r"\b(do not|don't|never|not for)\b", body_low):
         out.append(Finding("body", "consider", "No caveats or limits section.", "State what the skill must not do and when to stop."))
 
@@ -125,7 +139,14 @@ def structure_findings(skill: Skill, neighbour_description_tokens: Sequence[int]
         )
 
     if skill.script_count and "script" not in body_low:
-        out.append(Finding("scripts", "consider", f"{skill.script_count} script file(s) ship with the skill but the body never mentions them.", "Say which script to run and when."))
+        out.append(
+            Finding(
+                "scripts",
+                "consider",
+                f"{skill.script_count} script file(s) ship with the skill but the body never mentions them.",
+                "Say which script to run and when.",
+            )
+        )
 
     for w in skill.warnings:
         out.append(Finding("header", "fix", w, ""))

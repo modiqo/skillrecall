@@ -14,7 +14,7 @@ import random
 import re
 from dataclasses import dataclass
 
-from .skill import Skill, split_sections
+from .skill import split_sections
 from .text import strip_markdown
 
 _CUE = re.compile(

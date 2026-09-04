@@ -9,14 +9,14 @@ single suggested rewrite, which is rescored as a whole.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from typing import Callable, Sequence
 
 from .scoring import Doc, Outcome, Router, build_doc, evaluate, normalise_name
 from .skill import Skill
 from .stats import PairedDelta, paired_delta
 from .tasks import Task
-from .text import TokenCounter, name_similarity, name_words, sentences, tokens
+from .text import TokenCounter, name_similarity, name_words, sentences
 
 Apply = Callable[[str, str], tuple[str, str]]
 
@@ -189,7 +189,9 @@ def candidate_edits(
         extra = next((t for t in carrying_terms if "_" not in t and t not in have and len(t) > 3), None)
         if extra:
             new_name = f"{norm}-{extra}"
-            edits.append(Edit("rename", f"Rename to {new_name}; {collides[0]} already uses a near-identical name", new_name, _rename(new_name)))
+            edits.append(
+                Edit("rename", f"Rename to {new_name}; {collides[0]} already uses a near-identical name", new_name, _rename(new_name))
+            )
 
     # 6. Shorter prefixes of the description.
     if len(ss) >= 3:

@@ -9,7 +9,7 @@ loop, which rescores the same neighbours many times, pays for them once.
 from __future__ import annotations
 
 import math
-from typing import Sequence
+from collections.abc import Sequence
 
 DEFAULT_MODEL = "BAAI/bge-small-en-v1.5"
 
@@ -27,7 +27,7 @@ class FastEmbedScorer:
     def _embed(self, texts: Sequence[str]) -> list[list[float]]:
         missing = [t for t in texts if t not in self._cache]
         if missing:
-            for t, vec in zip(missing, self._model.embed(missing)):
+            for t, vec in zip(missing, self._model.embed(missing), strict=False):
                 v = [float(x) for x in vec]
                 n = math.sqrt(sum(x * x for x in v)) or 1.0
                 self._cache[t] = [x / n for x in v]
@@ -35,7 +35,7 @@ class FastEmbedScorer:
 
     def similarities(self, query: str, texts: Sequence[str]) -> list[float]:
         q = self._embed([query])[0]
-        return [sum(a * b for a, b in zip(q, v)) for v in self._embed(texts)]
+        return [sum(a * b for a, b in zip(q, v, strict=False)) for v in self._embed(texts)]
 
 
 def load_dense(model: str | None = None):

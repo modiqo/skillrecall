@@ -9,7 +9,7 @@ import pytest
 
 from skillrecall.assess import Options, assess
 from skillrecall.edits import candidate_edits
-from skillrecall.scoring import Doc, Router, build_doc, evaluate, parse_guards
+from skillrecall.scoring import Router, build_doc, evaluate, parse_guards
 from skillrecall.skill import load_skill, parse_frontmatter
 from skillrecall.stats import paired_delta, rate
 from skillrecall.tasks import Task, sample_tasks, seeds_for
@@ -109,7 +109,9 @@ def test_guard_yields_to_named_skill():
     assert len(guards) == 1 and guards[0].target == "pricing-page-audit"
     assert "pricing-page-audit" not in stripped
     docs = [
-        build_doc("a", "landing-clarity", "Audit a landing page for clarity. Not for pricing pages; use pricing-page-audit for that.", known),
+        build_doc(
+            "a", "landing-clarity", "Audit a landing page for clarity. Not for pricing pages; use pricing-page-audit for that.", known
+        ),
         build_doc("b", "pricing-page-audit", "Assess a pricing page layout.", known),
     ]
     r = Router(docs)
@@ -185,7 +187,21 @@ def test_suggested_description_never_measures_worse(tmp_path):
 
 
 def test_cli_json_output(tmp_path):
-    cmd = [sys.executable, "-m", "skillrecall", "assess", str(FIXTURES / "sql-migrations"), "--corpus", str(FIXTURES), "--no-catalog", "--no-save", "--format", "json", "--tasks", "40"]
+    cmd = [
+        sys.executable,
+        "-m",
+        "skillrecall",
+        "assess",
+        str(FIXTURES / "sql-migrations"),
+        "--corpus",
+        str(FIXTURES),
+        "--no-catalog",
+        "--no-save",
+        "--format",
+        "json",
+        "--tasks",
+        "40",
+    ]
     out = subprocess.run(cmd, capture_output=True, text=True, check=True)
     d = json.loads(out.stdout)
     assert d["skill"]["name"] == "sql-migrations"

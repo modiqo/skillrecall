@@ -21,7 +21,14 @@ def test_local_shape_detects_skill_and_collection():
 
 
 def test_skill_dirs_in_tree_skips_hidden_and_vendored():
-    tree = ["SKILL.md", "skills/a/SKILL.md", "skills/b/SKILL.md", ".git/x/SKILL.md", "node_modules/p/SKILL.md", "skills/a/references/notes.md"]
+    tree = [
+        "SKILL.md",
+        "skills/a/SKILL.md",
+        "skills/b/SKILL.md",
+        ".git/x/SKILL.md",
+        "node_modules/p/SKILL.md",
+        "skills/a/references/notes.md",
+    ]
     assert skill_dirs_in(tree) == ["", "skills/a", "skills/b"]
     assert skill_dirs_in(tree, "skills") == ["skills/a", "skills/b"]
 

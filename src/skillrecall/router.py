@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import random
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
 
 from .scoring import Doc, Router
 from .tasks import Task
@@ -73,7 +73,9 @@ class ReferenceRouter:
         return order[k - 1]
 
 
-def reference_check(router: Router, self_idx: int, own: Sequence[Task], n: int = 30, model: str = DEFAULT_MODEL, seed: int = 7) -> ReferenceResult:
+def reference_check(
+    router: Router, self_idx: int, own: Sequence[Task], n: int = 30, model: str = DEFAULT_MODEL, seed: int = 7
+) -> ReferenceResult:
     ref = ReferenceRouter(model, seed)
     rng = random.Random(seed)
     sample = own if len(own) <= n else rng.sample(list(own), n)

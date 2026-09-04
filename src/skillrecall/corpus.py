@@ -11,9 +11,9 @@ report can say where a competitor lives:
 from __future__ import annotations
 
 import os
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable
 
 from .skill import Skill, load_skill
 
@@ -91,7 +91,18 @@ def candidates_from_paths(paths: Iterable[str | os.PathLike[str]], origin: str) 
             continue
         if not sk.description:
             continue
-        out.append(Candidate(id=f"{origin}:{d.name}", name=sk.name, description=sk.description, origin=origin, source=str(d), body=sk.body, url=str(d), skill=sk))
+        out.append(
+            Candidate(
+                id=f"{origin}:{d.name}",
+                name=sk.name,
+                description=sk.description,
+                origin=origin,
+                source=str(d),
+                body=sk.body,
+                url=str(d),
+                skill=sk,
+            )
+        )
     return out
 
 

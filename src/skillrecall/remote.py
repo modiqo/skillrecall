@@ -17,6 +17,7 @@ skipped; only what an agent would read as text matters here.
 
 from __future__ import annotations
 
+import difflib
 import json
 import os
 import re
@@ -60,9 +61,8 @@ def is_remote(ref: str) -> bool:
 
 def parse_ref(ref: str) -> RemoteRef:
     raw = ref.strip()
-    if not raw.startswith(("http://", "https://")):
-        if raw.startswith(("github.com/", "skills.sh/", "www.skills.sh/")):
-            raw = "https://" + raw
+    if not raw.startswith(("http://", "https://")) and raw.startswith(("github.com/", "skills.sh/", "www.skills.sh/")):
+        raw = "https://" + raw
     if raw.startswith(("http://", "https://")):
         u = urlparse(raw)
         host = u.netloc.lower().removeprefix("www.")
@@ -90,7 +90,13 @@ def parse_ref(ref: str) -> RemoteRef:
                     catalog_id = f"{owner}/{repo}/{parts[2]}"
             if path.endswith("SKILL.md"):
                 path = path[: -len("SKILL.md")].rstrip("/")
-            return RemoteRef(f"{owner}/{repo}", path, branch, f"https://github.com/{owner}/{repo}" + (f"/tree/{branch}/{path}" if path else ""), catalog_id)
+            return RemoteRef(
+                f"{owner}/{repo}",
+                path,
+                branch,
+                f"https://github.com/{owner}/{repo}" + (f"/tree/{branch}/{path}" if path else ""),
+                catalog_id,
+            )
         raise ValueError(f"unsupported host in {ref}")
     m = _SHORT.match(raw)
     if not m:
@@ -132,7 +138,7 @@ def _locate(r: RemoteRef, tree: list[str]) -> str:
         for p in tree:
             if p.endswith(f"/{skill}/SKILL.md"):
                 return p[: -len("/SKILL.md")]
-        raise FileNotFoundError(f"skill {skill} not found in {r.source}")
+        raise FileNotFoundError(guidance(r.source, skill_names(tree), missing=skill))
     if "SKILL.md" in tree:
         return ""
     candidates = [p for p in tree if p.endswith("SKILL.md")]
@@ -140,8 +146,43 @@ def _locate(r: RemoteRef, tree: list[str]) -> str:
         return candidates[0][: -len("SKILL.md")].rstrip("/")
     if not candidates:
         raise FileNotFoundError(f"no SKILL.md in {r.source}")
-    names = ", ".join(sorted(c[: -len("/SKILL.md")].rsplit("/", 1)[-1] for c in candidates)[:12])
-    raise ValueError(f"{r.source} holds {len(candidates)} skills; name one, for example {r.source}/<skill>. Found: {names}")
+    raise ValueError(guidance(r.source, skill_names(tree)))
+
+
+def skill_names(tree: list[str]) -> list[str]:
+    return sorted({d.rsplit("/", 1)[-1] for d in skill_dirs_in(tree) if d})
+
+
+def guidance(source: str, names: list[str], missing: str = "") -> str:
+    """A formatted message that shows exactly how to be specific about a skill."""
+    lines: list[str] = []
+    if missing:
+        close = difflib.get_close_matches(missing, names, n=3, cutoff=0.5)
+        lines.append(f"No skill named “{missing}” in {source}.")
+        if close:
+            lines.append(f"Did you mean: {', '.join(close)}")
+    else:
+        lines.append(f"{source} holds {len(names)} skills.")
+    lines.append("")
+    lines.append("Pick one:")
+    example = (
+        (difflib.get_close_matches(missing, names, n=1, cutoff=0.5) or names[:1] or ["<skill>"])[0]
+        if missing
+        else (names[0] if names else "<skill>")
+    )
+    lines.append(f"  skillrecall assess {source}/{example}")
+    lines.append(f"  skillrecall assess https://github.com/{source}/{example}")
+    lines.append("")
+    lines.append("Or assess all of them together, each against its siblings:")
+    lines.append(f"  skillrecall assess {source}")
+    lines.append("")
+    if names:
+        lines.append(f"Skills in {source}:")
+        width = max(len(n) for n in names) + 2
+        cols = max(1, min(4, 100 // width))
+        for i in range(0, len(names), cols):
+            lines.append("  " + "".join(n.ljust(width) for n in names[i : i + cols]).rstrip())
+    return "\n".join(lines)
 
 
 def skill_dirs_in(tree: list[str], under: str = "") -> list[str]:
@@ -191,7 +232,11 @@ def materialise(ref: str, timeout: float = 12.0, workers: int = 8, cache: _Cache
 
 def _download(r: RemoteRef, tree: list[str], skill_dir: str, cache: _Cache, timeout: float, workers: int) -> Path:
     prefix = f"{skill_dir}/" if skill_dir else ""
-    wanted = [p for p in tree if p.startswith(prefix) and Path(p).suffix.lower() in _TEXT_EXT and not any(seg.startswith(".") for seg in p.split("/"))]
+    wanted = [
+        p
+        for p in tree
+        if p.startswith(prefix) and Path(p).suffix.lower() in _TEXT_EXT and not any(seg.startswith(".") for seg in p.split("/"))
+    ]
     wanted.sort(key=lambda p: (0 if p == f"{prefix}SKILL.md" else 1, p))
     wanted = wanted[:MAX_FILES]
     if f"{prefix}SKILL.md" not in wanted:

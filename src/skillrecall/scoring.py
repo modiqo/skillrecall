@@ -18,8 +18,9 @@ from __future__ import annotations
 import math
 import re
 from collections import Counter, defaultdict
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Protocol, Sequence
+from typing import Protocol
 
 from .tasks import TEMPLATES, Task
 from .text import STOP, name_words, terms, tokens
@@ -32,7 +33,29 @@ GUARD_CUES = re.compile(
     re.I,
 )
 _SENT_SPLIT = re.compile(r"(?<=[.;!?])\s+")
-_CUE_WORDS = frozenset("not for instead use when if see prefer defer rather than belongs handled covered leave hand off to is".split())
+_CUE_WORDS = frozenset(
+    [
+        "not",
+        "for",
+        "instead",
+        "use",
+        "when",
+        "if",
+        "see",
+        "prefer",
+        "defer",
+        "rather",
+        "than",
+        "belongs",
+        "handled",
+        "covered",
+        "leave",
+        "hand",
+        "off",
+        "to",
+        "is",
+    ]
+)
 
 YIELD_FACTOR = 0.25  # a guard hit hands the task to the named skill
 SOFT_YIELD_FACTOR = 0.6  # a bare pointer only yields when the named skill is competitive
@@ -75,11 +98,7 @@ def parse_guards(description: str, known: dict[str, int]) -> tuple[list[Guard], 
                 hit = nm
                 break
         if hit is not None and GUARD_CUES.search(sent):
-            cond = frozenset(
-                t
-                for t in tokens(sent)
-                if t not in _CUE_WORDS and t not in hit.split("-") and t not in STOP
-            )
+            cond = frozenset(t for t in tokens(sent) if t not in _CUE_WORDS and t not in hit.split("-") and t not in STOP)
             guards.append(Guard(hit, cond))
         else:
             kept.append(sent)
@@ -93,7 +112,7 @@ class DenseScorer(Protocol):
 class Index:
     """BM25 over unigrams and bigrams with an inverted index."""
 
-    __slots__ = ("n", "k1", "b", "dl", "avgdl", "idf", "postings", "term_counts")
+    __slots__ = ("avgdl", "b", "dl", "idf", "k1", "n", "postings", "term_counts")
 
     def __init__(self, texts: Sequence[str], k1: float = 1.2, b: float = 0.75) -> None:
         self.n = len(texts)
@@ -165,7 +184,7 @@ class Router:
         if self.dense is not None:
             dense = self.dense.similarities(task_text, [d.text for d in self.docs])
             zs, zd = _standardise(s), _standardise(dense)
-            s = [(a + c) / 2.0 for a, c in zip(zs, zd)]
+            s = [(a + c) / 2.0 for a, c in zip(zs, zd, strict=False)]
         if self._guarded:
             q_tokens = set(tokens(task_text))
             for i in self._guarded:
@@ -202,7 +221,9 @@ class Outcome:
     no_match: int = 0  # own tasks that matched nothing at all
 
 
-def evaluate(router: Router, self_idx: int, own: Sequence[Task], adversarial: Sequence[Task], composition: Sequence[Task], top_k: int = 3) -> Outcome:
+def evaluate(
+    router: Router, self_idx: int, own: Sequence[Task], adversarial: Sequence[Task], composition: Sequence[Task], top_k: int = 3
+) -> Outcome:
     own_hits: list[bool] = []
     own_ranks: list[int] = []
     own_winners: list[int] = []

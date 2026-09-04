@@ -138,6 +138,7 @@ The JSON has a stable top level: `skill`, `competition`, `pickup`, `takes_your_t
 | `--dense` | off | Add the local embedding scorer (needs the `dense` extra) |
 | `--reference` | off | Ask a model to route 30 tasks and report agreement (needs the `router` extra and credentials) |
 | `--seed N` | 7 | Sampling seed; same seed and same competitors give the same numbers |
+| `--quiet` | off | No progress ticker on stderr (it is already off when stderr is not a terminal) |
 | `--no-save` | | Do not record this run in the history |
 
 Catalog searches and fetched competitor files are cached under `~/.cache/skillrecall` for an hour and a week respectively. Run history lives under `~/.local/state/skillrecall`. Set `GITHUB_TOKEN` to raise the rate limit when many competitors live in repositories with unusual layouts.
@@ -164,6 +165,12 @@ The method is described step by step in [ALGORITHM.md](ALGORITHM.md). In one par
 uv sync --extra dev
 uv run pytest
 uv build
+```
+
+### Lint
+
+```sh
+uv run ruff check . && uv run ruff format .
 ```
 
 ### Releasing

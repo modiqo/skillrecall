@@ -56,7 +56,7 @@ def movement(prev: dict | None, cur: dict) -> list[str]:
     lines: list[str] = []
 
     def per_ten(x: float) -> int:
-        return int(round(x * 10))
+        return round(x * 10)
 
     r0, r1 = prev.get("recall", 0.0), cur.get("recall", 0.0)
     if per_ten(r1) != per_ten(r0):
@@ -70,7 +70,7 @@ def movement(prev: dict | None, cur: dict) -> list[str]:
         lines.append(f"Mistaken pickups of other skills' tasks {word}: {per_ten(f1)} in 10, from {per_ten(f0)} in 10.")
     t0, t1 = prev.get("resident_tokens", 0), cur.get("resident_tokens", 0)
     if t0 and t1 != t0:
-        pct = int(round(100 * (t1 - t0) / t0))
+        pct = round(100 * (t1 - t0) / t0)
         lines.append(f"Description {'shorter' if t1 < t0 else 'longer'} by {abs(pct)}%.")
     n0, n1 = prev.get("name"), cur.get("name")
     if n0 and n1 and n0 != n1:

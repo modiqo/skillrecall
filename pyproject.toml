@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "skillrecall"
-version = "0.1.1"
+version = "0.1.2"
 description = "Assess an agent skill for how reliably it gets picked when installed alongside other skills, and get ranked edits to improve it."
 readme = "README.md"
 license = { text = "MIT" }
@@ -24,7 +24,7 @@ tokens = ["tiktoken>=0.7"]
 dense = ["fastembed>=0.3"]
 router = ["anthropic>=1.0"]
 all = ["tiktoken>=0.7", "fastembed>=0.3", "anthropic>=1.0"]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "ruff>=0.6"]
 
 [project.scripts]
 skillrecall = "skillrecall.cli:main"
@@ -40,3 +40,15 @@ include = ["src/skillrecall", "README.md", "ALGORITHM.md", "LICENSE", "pyproject
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 140
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+ignore = ["E501", "RUF001", "RUF002", "RUF003", "SIM108"]
+
+[tool.ruff.format]
+quote-style = "double"

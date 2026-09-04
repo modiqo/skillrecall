@@ -10,8 +10,8 @@ from __future__ import annotations
 import math
 import re
 from collections import Counter
+from collections.abc import Iterable
 from functools import lru_cache
-from typing import Iterable
 
 _WORD = re.compile(r"[a-z0-9]+")
 _SENTENCE = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9\"'(\[])|\n{2,}")
@@ -26,16 +26,125 @@ _WS = re.compile(r"\s+")
 # never appear here; the ranking is stable with or without the list, but the
 # term suggestions shown to authors must not contain filler.
 STOP = frozenset(
-    """
-    a an the and or but of to in on for with by from as at is are be been was
-    were this that these those it its into if then than not no when use used
-    using your you their which any all can will may should also each every
-    our ours does did has have had what who how why where some someone something
-    please help need want make get let just one two about over after before
-    would could like via per within without between across through them they
-    there here than more most much many very own same other such only both
-    add set put show give take keep look turn run running
-        """.split()
+    [
+        "a",
+        "an",
+        "the",
+        "and",
+        "or",
+        "but",
+        "of",
+        "to",
+        "in",
+        "on",
+        "for",
+        "with",
+        "by",
+        "from",
+        "as",
+        "at",
+        "is",
+        "are",
+        "be",
+        "been",
+        "was",
+        "were",
+        "this",
+        "that",
+        "these",
+        "those",
+        "it",
+        "its",
+        "into",
+        "if",
+        "then",
+        "than",
+        "not",
+        "no",
+        "when",
+        "use",
+        "used",
+        "using",
+        "your",
+        "you",
+        "their",
+        "which",
+        "any",
+        "all",
+        "can",
+        "will",
+        "may",
+        "should",
+        "also",
+        "each",
+        "every",
+        "our",
+        "ours",
+        "does",
+        "did",
+        "has",
+        "have",
+        "had",
+        "what",
+        "who",
+        "how",
+        "why",
+        "where",
+        "some",
+        "someone",
+        "something",
+        "please",
+        "help",
+        "need",
+        "want",
+        "make",
+        "get",
+        "let",
+        "just",
+        "one",
+        "two",
+        "about",
+        "over",
+        "after",
+        "before",
+        "would",
+        "could",
+        "like",
+        "via",
+        "per",
+        "within",
+        "without",
+        "between",
+        "across",
+        "through",
+        "them",
+        "they",
+        "there",
+        "here",
+        "than",
+        "more",
+        "most",
+        "much",
+        "many",
+        "very",
+        "own",
+        "same",
+        "other",
+        "such",
+        "only",
+        "both",
+        "add",
+        "set",
+        "put",
+        "show",
+        "give",
+        "take",
+        "keep",
+        "look",
+        "turn",
+        "run",
+        "running",
+    ]
 )
 
 MIN_TOKEN_LEN = 3

@@ -70,7 +70,9 @@ def render_human(a: Assessment, detail: str = "simple", explain: bool = False) -
         L.append("  The body has few example requests, so tasks were drawn from the description itself.")
         L.append("  Add a “When to use” section with real requests and rerun before trusting the advice below.")
     if a.composition.n:
-        L.append(f"  In bigger requests that need several skills, you are among the top {a.options.top_k} {per_ten_phrase(a.composition.value)}.")
+        L.append(
+            f"  In bigger requests that need several skills, you are among the top {a.options.top_k} {per_ten_phrase(a.composition.value)}."
+        )
     if a.no_match_share >= 0.2:
         L.append(f"  {per_ten_phrase(a.no_match_share)} of your own tasks match no description at all, yours included.")
     L.append("")
@@ -117,8 +119,14 @@ def render_human(a: Assessment, detail: str = "simple", explain: bool = False) -
             L.append(f"    description: {a.suggested_description}")
             r_now, r_new = a.recall.value, a.recall.value + a.suggested_recall_delta
             f_now, f_new = a.false_positives.value, a.false_positives.value + a.suggested_false_pos_delta
-            size = f"{abs(a.suggested_token_delta)} tokens {'shorter' if a.suggested_token_delta < 0 else 'longer'}" if a.suggested_token_delta else "same length"
-            L.append(f"  Expected: picked {per_ten_phrase(r_new)} (from {per_ten_phrase(r_now)}); mistaken pickups {per_ten_phrase(f_new)} (from {per_ten_phrase(f_now)}); {size}.")
+            size = (
+                f"{abs(a.suggested_token_delta)} tokens {'shorter' if a.suggested_token_delta < 0 else 'longer'}"
+                if a.suggested_token_delta
+                else "same length"
+            )
+            L.append(
+                f"  Expected: picked {per_ten_phrase(r_new)} (from {per_ten_phrase(r_now)}); mistaken pickups {per_ten_phrase(f_new)} (from {per_ten_phrase(f_now)}); {size}."
+            )
     else:
         L.append("  No description change measured as an improvement. The structure notes below still apply.")
     L.append("")
@@ -146,7 +154,9 @@ def _detailed(a: Assessment) -> list[str]:
     s = a.skill
     L.append("Size")
     L.append(f"  Name + description: {s.resident_tokens} tokens ({s.token_label}); description alone {s.description_tokens}.")
-    L.append(f"  Body: {s.lines} lines, about {s.body_tokens:,} tokens. Reference files: {len(s.reference_files)} ({s.reference_tokens:,} tokens).")
+    L.append(
+        f"  Body: {s.lines} lines, about {s.body_tokens:,} tokens. Reference files: {len(s.reference_files)} ({s.reference_tokens:,} tokens)."
+    )
     big = s.largest_reference
     if big:
         L.append(f"  Largest reference: {big.path} ({big.tokens:,} tokens).")
@@ -166,7 +176,9 @@ def _detailed(a: Assessment) -> list[str]:
     for e in a.all_edits:
         r = f"{e.recall.delta:+.2f}" if e.recall else "  n/a"
         f = f"{e.false_pos.delta:+.2f}" if e.false_pos else "  n/a"
-        L.append(f"  [{'keep' if e.accepted else 'skip'}] {e.instruction[:80]:<80} picked {r}  mistaken {f}  tokens {e.token_delta:+d}  {e.verdict}")
+        L.append(
+            f"  [{'keep' if e.accepted else 'skip'}] {e.instruction[:80]:<80} picked {r}  mistaken {f}  tokens {e.token_delta:+d}  {e.verdict}"
+        )
     L.append("")
     L.append("Sample tasks used")
     for t in a.sample_tasks:
@@ -176,10 +188,14 @@ def _detailed(a: Assessment) -> list[str]:
     L.append("Run")
     L.append(f"  Scorers: {'; '.join(a.scorers)}")
     if a.reference:
-        L.append(f"  Reference router picked you {per_ten_phrase(a.reference['recall'])} on {a.reference['n']} tasks and agreed with the local scorer {per_ten_phrase(a.reference['agreement'])}.")
+        L.append(
+            f"  Reference router picked you {per_ten_phrase(a.reference['recall'])} on {a.reference['n']} tasks and agreed with the local scorer {per_ten_phrase(a.reference['agreement'])}."
+        )
     cs = a.catalog_status
     if cs.get("enabled"):
-        L.append(f"  Catalog: {cs.get('found', 0)} found, {cs.get('fetched', 0)} with descriptions, {cs.get('unavailable', 0)} unavailable{', offline' if cs.get('offline') else ''}.")
+        L.append(
+            f"  Catalog: {cs.get('found', 0)} found, {cs.get('fetched', 0)} with descriptions, {cs.get('unavailable', 0)} unavailable{', offline' if cs.get('offline') else ''}."
+        )
     L.append(f"  Elapsed: {a.elapsed:.2f}s. Generated {a.generated_at}.")
     L.append("")
     return L
@@ -234,7 +250,11 @@ def render_collection_human(c, detail: str = "simple", explain: bool = False) ->
     L: list[str] = []
     n = len(c.skills)
     L.append(f"Collection: {c.source}")
-    L.append(f"{n} skill{'s' if n != 1 else ''} assessed, each against its siblings" + (" and the public catalog" if any(x.origin == "catalog" for a in c.skills for x in a.neighbours) else "") + f", in {c.elapsed:.0f}s.")
+    L.append(
+        f"{n} skill{'s' if n != 1 else ''} assessed, each against its siblings"
+        + (" and the public catalog" if any(x.origin == "catalog" for a in c.skills for x in a.neighbours) else "")
+        + f", in {c.elapsed:.0f}s."
+    )
     if c.failures:
         L.append(f"Could not assess {len(c.failures)}: " + ", ".join(f"{name} ({err})" for name, err in c.failures[:5]))
     L.append("")
@@ -253,7 +273,9 @@ def render_collection_human(c, detail: str = "simple", explain: bool = False) ->
     L.append("Pairs in this repo that take each other's tasks")
     if pairs:
         for p in pairs[:10]:
-            L.append(f"  {p.a:<30} answers {per_ten_phrase(p.a_takes_b):<14} of {p.b}'s tasks; the reverse is {per_ten_phrase(p.b_takes_a)}")
+            L.append(
+                f"  {p.a:<30} answers {per_ten_phrase(p.a_takes_b):<14} of {p.b}'s tasks; the reverse is {per_ten_phrase(p.b_takes_a)}"
+            )
     else:
         L.append("  None above 1 in 10. The skills in this repo stay out of each other's way.")
     L.append("")

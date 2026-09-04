@@ -8,8 +8,8 @@ and makes every interval reproducible from a seed.
 from __future__ import annotations
 
 import random
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
 
 DEFAULT_RESAMPLES = 1000
 
@@ -23,7 +23,7 @@ class Rate:
 
     @property
     def per_ten(self) -> int:
-        return int(round(self.value * 10))
+        return round(self.value * 10)
 
     def as_dict(self) -> dict:
         return {"value": round(self.value, 4), "low": round(self.low, 4), "high": round(self.high, 4), "n": self.n}
@@ -63,7 +63,13 @@ class PairedDelta:
         return self.n > 0 and (self.low > 0 or self.high < 0)
 
     def as_dict(self) -> dict:
-        return {"delta": round(self.delta, 4), "low": round(self.low, 4), "high": round(self.high, 4), "n": self.n, "significant": self.significant}
+        return {
+            "delta": round(self.delta, 4),
+            "low": round(self.low, 4),
+            "high": round(self.high, 4),
+            "n": self.n,
+            "significant": self.significant,
+        }
 
 
 def paired_delta(before: Sequence[bool], after: Sequence[bool], seed: int = 7, resamples: int = DEFAULT_RESAMPLES) -> PairedDelta:
@@ -99,7 +105,7 @@ def confidence_word(n: int) -> str:
 
 
 def per_ten_phrase(value: float) -> str:
-    k = int(round(value * 10))
+    k = round(value * 10)
     if k <= 0:
         return "almost never"
     if k >= 10:

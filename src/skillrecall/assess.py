@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import time
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 
 from . import snapshots
 from .corpus import Candidate, candidates_from_dir, candidates_from_paths, dedupe_against, installed_candidates
-from .remote import is_remote, materialise
 from .edits import Edit, Stealer, candidate_edits, compose, evaluate_edits
+from .remote import is_remote, materialise
 from .scoring import Doc, Router, attribution, build_doc, evaluate, normalise_name
 from .skill import Skill, load_skill
 from .stats import Rate, confidence_word, rate
@@ -45,6 +46,7 @@ class Options:
     source_url: str = ""  # filled in when skill_path was a remote reference
     sibling_dirs: list[str] = field(default_factory=list)  # other skills shipped with this one
     catalog_id: str = ""  # this skill's own catalog id, excluded from its competition
+    progress: Callable[[str], None] | None = field(default=None, repr=False, compare=False)  # stage updates
 
 
 @dataclass(slots=True)
@@ -74,7 +76,9 @@ class Neighbour:
             "points_at_you": self.guards_me,
         }
         if detail:
-            d.update({"url": self.url, "description": self.description, "taken_n": self.taken_n, "name_overlap": round(self.name_overlap, 3)})
+            d.update(
+                {"url": self.url, "description": self.description, "taken_n": self.taken_n, "name_overlap": round(self.name_overlap, 3)}
+            )
         return d
 
 
@@ -202,14 +206,20 @@ class Assessment:
             d["scorers"] = self.scorers
             d["reference"] = self.reference
             d["elapsed_seconds"] = round(self.elapsed, 3)
-            d["options"] = {f.name: (str(v) if isinstance(v := getattr(self.options, f.name), Path) else v) for f in fields(self.options)}
+            d["options"] = {
+                f.name: (str(v) if isinstance(v := getattr(self.options, f.name), Path) else v)
+                for f in fields(self.options)
+                if f.name != "progress"
+            }
         return d
 
 
 # ---------------------------------------------------------------------------
 
 
-def _gather(skill: Skill, opts: Options, self_id: str = "") -> tuple[list[Candidate], list[Candidate], dict]:
+def _gather(
+    skill: Skill, opts: Options, self_id: str = "", note: Callable[[str], None] = lambda s: None
+) -> tuple[list[Candidate], list[Candidate], dict]:
     cands: list[Candidate] = []
     cands.extend(candidates_from_paths(opts.sibling_dirs, origin="sibling"))
     for d in opts.corpus_dirs:
@@ -224,7 +234,9 @@ def _gather(skill: Skill, opts: Options, self_id: str = "") -> tuple[list[Candid
         desc = strip_markdown(skill.description)
         first = desc.split(". ")[0]
         queries = [desc, f"{' '.join(skill.name.split('-'))}: {first}"]
+        note("searching the catalog for competitors")
         found = [h for h in cat.neighbours(queries, limit=min(200, max(20, opts.neighbours))) if h["id"] != self_id]
+        note(f"fetching descriptions of {min(len(found), opts.neighbours)} competitors")
         cands.extend(cat.hydrate(found, max_neighbours=opts.neighbours))
         status.update({f.name: getattr(cat.status, f.name) for f in fields(cat.status)})
     # Merge: one candidate per (name, description) text, first origin wins.
@@ -247,16 +259,19 @@ def _distinctive(cand: Candidate, own_terms: set[str], k: int = 3) -> list[str]:
 
 def assess(opts: Options) -> Assessment:
     t0 = time.perf_counter()
+    note = opts.progress or (lambda s: None)
     counter = TokenCounter()
     self_id = opts.catalog_id
     if is_remote(opts.skill_path):
+        note("fetching the skill")
         local, ref = materialise(opts.skill_path, timeout=opts.timeout)
         opts.source_url = ref.url
         self_id = ref.catalog_id
         skill = load_skill(local, counter)
     else:
+        note("reading the skill")
         skill = load_skill(opts.skill_path, counter)
-    cands, dups, cat_status = _gather(skill, opts, self_id)
+    cands, dups, cat_status = _gather(skill, opts, self_id, note)
 
     # Docs: the author's skill is index 0.
     known: dict[str, int] = {normalise_name(skill.name): 0}
@@ -275,6 +290,7 @@ def assess(opts: Options) -> Assessment:
         scorers.append(f"dense ({dense.label})")
 
     # Own tasks.
+    note(f"sampling requests against {len(cands)} competitors")
     seeds, weak = seeds_for(skill.body, skill.description)
     own: list[Task] = []
     sources: Counter[str] = Counter()
@@ -299,6 +315,7 @@ def assess(opts: Options) -> Assessment:
     sources["neighbour"] = len(adv)
     comp = composition_tasks(own, adv, opts.composition, 0, opts.seed)
 
+    note(f"routing {len(own) + len(adv) + len(comp)} requests")
     router = Router(docs, dense)
     base = evaluate(router, 0, own, adv, comp, opts.top_k)
 
@@ -312,7 +329,7 @@ def assess(opts: Options) -> Assessment:
     win_counts = Counter(w for w in base.own_winners if w > 0)
     taken_hits: Counter[int] = Counter()
     taken_n: Counter[int] = Counter()
-    for hit, owner in zip(base.adv_hits, base.adv_owner):
+    for hit, owner in zip(base.adv_hits, base.adv_owner, strict=False):
         taken_n[owner] += 1
         taken_hits[owner] += int(hit)
     own_norm = normalise_name(skill.name)
@@ -342,22 +359,25 @@ def assess(opts: Options) -> Assessment:
     # Edits.
     own_terms = set(tokens(skill.resident_text))
     stealers = [
-        Stealer(c.name, win_counts[i] / len(own), _distinctive(c, own_terms))
-        for i, c in enumerate(cands, start=1)
-        if own and win_counts[i]
+        Stealer(c.name, win_counts[i] / len(own), _distinctive(c, own_terms)) for i, c in enumerate(cands, start=1) if own and win_counts[i]
     ]
     stealers.sort(key=lambda s: -s.share)
     all_edits = candidate_edits(skill, stealers[:5], missing, carrying, [c.name for c in cands])
+    note(f"trying {len(all_edits)} edits")
     weak_sample = weak and not opts.tasks_file
-    ranked = evaluate_edits(all_edits, skill, docs, 0, known, own, adv, comp, base, counter, dense, opts.seed, allow_shortening=not weak_sample)
+    ranked = evaluate_edits(
+        all_edits, skill, docs, 0, known, own, adv, comp, base, counter, dense, opts.seed, allow_shortening=not weak_sample
+    )
     s_name, s_desc, applied, r_d, fp_d, c_d, tok_d = compose(skill, ranked, docs, 0, known, own, adv, comp, base, counter, dense, opts.seed)
 
+    note("checking structure")
     findings = structure_findings(skill, [counter.count(c.description) for c in cands])
 
     reference = None
     if opts.reference:
         from .router import reference_check
 
+        note(f"asking {opts.reference_model} to route {opts.reference_n} requests")
         reference = reference_check(router, 0, own, opts.reference_n, opts.reference_model, opts.seed).as_dict()
         scorers.append(f"reference router ({opts.reference_model}, {reference['n']} tasks)")
 
@@ -454,7 +474,9 @@ class Collection:
         }
 
 
-def assess_collection(base: Options, skill_dirs: list[Path], source: str, catalog_source: str = "", workers: int = 4, progress=None) -> Collection:
+def assess_collection(
+    base: Options, skill_dirs: list[Path], source: str, catalog_source: str = "", workers: int = 4, progress=None
+) -> Collection:
     """Assess every skill in a collection, each competing against its siblings."""
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -463,6 +485,7 @@ def assess_collection(base: Options, skill_dirs: list[Path], source: str, catalo
 
     def one(d: str) -> Assessment:
         opts = Options(**{f.name: getattr(base, f.name) for f in fields(base)})
+        opts.progress = None  # the collection ticker owns the display
         opts.skill_path = d
         opts.sibling_dirs = [x for x in dirs if x != d]
         opts.corpus_dirs = list(base.corpus_dirs)
