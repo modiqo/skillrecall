@@ -141,6 +141,9 @@ def render_human(a: Assessment, detail: str = "simple", explain: bool = False) -
         if f.action:
             L.append(f"        {f.action}")
     L.append("")
+    L.append("Next")
+    L.append("  Edit the description or body, then run the same command again. The report will open with what moved.")
+    L.append("")
 
     if detail == "detailed":
         L.extend(_detailed(a))
@@ -228,60 +231,110 @@ def render_json(a: Assessment, detail: str = "simple") -> str:
 
 def _first_step(a: Assessment) -> str:
     if a.edits:
-        text = a.edits[0].instruction
-        return text if len(text) <= 60 else text[:57] + "..."
+        return a.edits[0].instruction
     fix = next((f for f in a.findings if f.severity == "fix"), None)
     if fix:
-        return fix.message if len(fix.message) <= 60 else fix.message[:57] + "..."
-    return "nothing measured"
+        return f"{fix.message} {fix.action}".strip()
+    return "Nothing to change was measured."
 
 
-def _biggest(a: Assessment) -> str:
-    st = a.stealers
-    if not st or st[0].takes < 0.05:
-        return "-"
-    n = st[0]
-    return f"{_label(n)} takes {per_ten_phrase(n.takes).replace('about ', '')}"
+def _loses_to(a: Assessment) -> str:
+    st = [n for n in a.stealers if n.takes >= 0.05]
+    if not st:
+        return ""
+    return ", ".join(f"{_label(n)} {per_ten_phrase(n.takes).replace('about ', '')}" for n in st[:3])
+
+
+def _ref_for(c, a: Assessment) -> str:
+    """The command that gives one skill's full report."""
+    base = c.source
+    if base.startswith("https://github.com/"):
+        base = base[len("https://github.com/") :].split("/tree/")[0]
+    return f"skillrecall assess {base}/{a.skill.name}"
+
+
+WEAK_PICKUP = 0.5
 
 
 def render_collection_human(c, detail: str = "simple", explain: bool = False) -> str:
-    from .assess import Collection  # noqa: F401  (type only)
-
     L: list[str] = []
-    n = len(c.skills)
+    skills = sorted(c.skills, key=lambda a: (a.recall.value, -a.false_positives.value))
+    n = len(skills)
+    sample = skills[0].recall.n if skills else 0
+    with_catalog = any(x.origin == "catalog" for a in skills for x in a.neighbours)
+    against = f"its {n - 1} sibling{'s' if n - 1 != 1 else ''}" + (" and up to 40 skills from the public catalog" if with_catalog else "")
+
     L.append(f"Collection: {c.source}")
-    L.append(
-        f"{n} skill{'s' if n != 1 else ''} assessed, each against its siblings"
-        + (" and the public catalog" if any(x.origin == "catalog" for a in c.skills for x in a.neighbours) else "")
-        + f", in {c.elapsed:.0f}s."
-    )
+    L.append(f"{n} skills, each scored on {sample} sample requests against {against}. Took {c.elapsed:.0f}s.")
     if c.failures:
-        L.append(f"Could not assess {len(c.failures)}: " + ", ".join(f"{name} ({err})" for name, err in c.failures[:5]))
+        L.append(f"Could not assess {len(c.failures)}: " + "; ".join(f"{name} ({err.splitlines()[0]})" for name, err in c.failures[:5]))
     L.append("")
-    L.append("Weakest first")
-    L.append(f"  {'skill':<30} {'picked':>8} {'mistaken':>9} {'top-3':>6}  {'biggest competitor':<44} first thing to do")
-    for a in sorted(c.skills, key=lambda a: (a.recall.value, -a.false_positives.value)):
-        picked = f"{a.recall.per_ten} in 10"
-        mistaken = f"{a.false_positives.per_ten} in 10"
-        top = f"{a.composition.per_ten}/10" if a.composition.n else "-"
-        weak = "*" if a.weak_seeds else " "
-        L.append(f"  {a.skill.name[:30]:<30} {picked:>8} {mistaken:>9} {top:>6} {weak} {_biggest(a)[:44]:<44} {_first_step(a)}")
-    if any(a.weak_seeds for a in c.skills):
-        L.append("  * body has few example requests; tasks came from the description, so treat that row as low confidence")
+    L.append("How to read this")
+    L.append("  picked    how often a skill wins a request meant for it. 10 in 10 is best.")
+    L.append("  mistaken  how often it wins a request meant for another skill. 0 in 10 is best.")
+    L.append("  *         the body has no example requests, so requests were drawn from the description. Low confidence.")
     L.append("")
+
+    weak = [a for a in skills if a.recall.value < WEAK_PICKUP]
+    fine = [a for a in skills if a.recall.value >= WEAK_PICKUP]
+
+    L.append(f"Needs attention: {len(weak)} skill{'s' if len(weak) != 1 else ''} picked under {int(WEAK_PICKUP * 10)} in 10")
+    if not weak:
+        L.append("  None. Every skill wins at least half of its own requests.")
+    for a in weak:
+        flag = " *" if a.weak_seeds else ""
+        L.append(f"  {a.skill.name}{flag}")
+        L.append(f"    picked {per_ten_phrase(a.recall.value)}, mistaken {per_ten_phrase(a.false_positives.value)}")
+        loses = _loses_to(a)
+        if loses:
+            L.append(f"    loses to: {loses}")
+        L.append(f"    do first: {_first_step(a)}")
+        L.append(f"    full report: {_ref_for(c, a)}")
+    L.append("")
+
+    L.append(f"Doing fine: {len(fine)} skill{'s' if len(fine) != 1 else ''}")
+    if fine:
+        L.append(f"  {'skill':<32} {'picked':>8} {'mistaken':>9}  do first")
+        for a in fine:
+            flag = "*" if a.weak_seeds else " "
+            step = _first_step(a)
+            L.append(
+                f"  {a.skill.name[:32]:<32} {per_ten_phrase(a.recall.value).replace('about ', ''):>9} {per_ten_phrase(a.false_positives.value).replace('about ', ''):>9} {flag} {step}"
+            )
+    L.append("")
+
     pairs = [p for p in c.sibling_pairs if p.a_takes_b >= 0.1 or p.b_takes_a >= 0.1]
-    L.append("Pairs in this repo that take each other's tasks")
+    L.append("Skills in this collection that take each other's requests")
     if pairs:
         for p in pairs[:10]:
             L.append(
-                f"  {p.a:<30} answers {per_ten_phrase(p.a_takes_b):<14} of {p.b}'s tasks; the reverse is {per_ten_phrase(p.b_takes_a)}"
+                f"  {p.a} answers {per_ten_phrase(p.a_takes_b)} of {p.b}'s requests"
+                + (f"; {p.b} answers {per_ten_phrase(p.b_takes_a)} of {p.a}'s" if p.b_takes_a >= 0.1 else "")
             )
+        L.append("  Fix: give each of these a one-sentence hand-off naming the other, so the host knows which to pick.")
     else:
-        L.append("  None above 1 in 10. The skills in this repo stay out of each other's way.")
+        L.append("  None above 1 in 10. They stay out of each other's way.")
     L.append("")
-    L.append("For one skill's full report: skillrecall assess <this reference>/<skill>")
+
+    L.append("What to do next")
+    step = 1
+    if weak:
+        L.append(f"  {step}. Start with the weakest: {_ref_for(c, weak[0])}")
+        L.append("     It shows who takes its requests, every edit that measurably helps, and the rewritten header.")
+        step += 1
+    starved = [a for a in skills if a.weak_seeds]
+    if starved:
+        L.append(f"  {step}. {len(starved)} of {n} bodies have no “When to use” section with example requests.")
+        L.append(
+            "     Adding three to eight real requests to each is the single change that helps most, and it makes these numbers trustworthy."
+        )
+        step += 1
+    if pairs:
+        L.append(f"  {step}. Add hand-off sentences for the {len(pairs)} overlapping pair{'s' if len(pairs) != 1 else ''} above.")
+        step += 1
+    L.append(f"  {step}. Edit, then run this command again. The report opens with what moved.")
     if detail == "detailed":
-        for a in sorted(c.skills, key=lambda a: a.recall.value):
+        for a in skills:
             L.append("")
             L.append("=" * 78)
             L.append(render_human(a, "detailed", explain).rstrip())

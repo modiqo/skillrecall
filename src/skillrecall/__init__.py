@@ -2,5 +2,5 @@
 
 from .assess import Assessment, Options, assess
 
-__version__ = "0.1.4"
+__version__ = "0.1.5"
 __all__ = ["Assessment", "Options", "__version__", "assess"]

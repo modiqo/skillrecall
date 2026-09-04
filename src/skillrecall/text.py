@@ -160,9 +160,19 @@ def bigrams(toks: list[str]) -> list[str]:
 
 
 def terms(text: str) -> list[str]:
-    """Unigrams plus adjacent bigrams; the unit the lexical scorer indexes."""
-    toks = tokens(text)
-    return toks + bigrams(toks)
+    """Unigrams plus bigrams of words that are adjacent in the original text.
+
+    Bigrams are formed before stop words are dropped, so "cause of a bug"
+    yields the unigrams cause and bug but not the misleading phrase
+    "cause bug". This is the unit the lexical scorer indexes.
+    """
+    raw = _WORD.findall(text.lower())
+    keep = [len(t) >= MIN_TOKEN_LEN and t not in STOP for t in raw]
+    out = [t for t, k in zip(raw, keep, strict=True) if k]
+    for i in range(len(raw) - 1):
+        if keep[i] and keep[i + 1]:
+            out.append(f"{raw[i]}_{raw[i + 1]}")
+    return out
 
 
 def term_counts(text: str) -> Counter[str]:
