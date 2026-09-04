@@ -37,11 +37,15 @@ skillrecall assess https://github.com/owner/repo/tree/main/skills/my-skill
 skillrecall assess owner/repo/my-skill
 ```
 
-A reference that holds several skills is assessed as a collection: a whole repository, a `skills/` directory, or a local folder of skills. Every skill competes against its siblings (plus the catalog unless you say `--no-catalog`) and you get one table, weakest first, plus the pairs inside the collection that take each other's tasks.
+A reference that holds several skills is a collection: a whole repository, a `skills/` directory, or a local folder of skills. Every skill in it competes against its siblings (plus the catalog unless you say `--no-catalog`) and you get one table, weakest first, plus the pairs inside the collection that take each other's tasks.
+
+Small collections, up to eight skills, run straight away. A larger one stops and shows you its skills with the exact commands to be specific, because assessing dozens of skills against the catalog takes minutes:
 
 ```sh
-skillrecall assess https://github.com/owner/repo     # every skill in the repo
-skillrecall assess ./skills --no-catalog             # local collection, siblings only
+skillrecall assess https://github.com/owner/repo                    # lists the skills and how to choose
+skillrecall assess owner/repo --pick code-review,diagnosing-bugs    # a few, competing with each other
+skillrecall assess owner/repo --all                                 # everything, several minutes
+skillrecall assess ./skills --no-catalog                            # local collection, siblings only
 ```
 
 Add the skills already installed on your machine, or a directory of your own:
@@ -130,6 +134,8 @@ The JSON has a stable top level: `skill`, `competition`, `pickup`, `takes_your_t
 |---|---|---|
 | `--neighbours N` | 40 | How many catalog skills to compete against |
 | `--workers N` | 4 | Skills assessed in parallel when the reference is a collection |
+| `--pick a,b` | | Assess only these skills from a collection |
+| `--all` | off | Assess a collection of more than eight skills without being asked to choose |
 | `--tasks N` | 100 | How many of your own requests to sample; more gives a tighter confidence range |
 | `--installed` | off | Also compete against every skill installed on this machine |
 | `--corpus DIR` | | Compete against a directory of skills; repeatable |
@@ -141,7 +147,7 @@ The JSON has a stable top level: `skill`, `competition`, `pickup`, `takes_your_t
 | `--quiet` | off | No progress ticker on stderr (it is already off when stderr is not a terminal) |
 | `--no-save` | | Do not record this run in the history |
 
-Catalog searches and fetched competitor files are cached under `~/.cache/skillrecall` for an hour and a week respectively. Run history lives under `~/.local/state/skillrecall`. Set `GITHUB_TOKEN` to raise the rate limit when many competitors live in repositories with unusual layouts.
+Catalog searches and fetched competitor files are cached under `~/.cache/skillrecall` for an hour and a week respectively. Run history lives under `~/.local/state/skillrecall`. Repository listings go through the GitHub API. Without a token that allows 60 requests an hour, which a busy session can exhaust; `skillrecall` uses `GITHUB_TOKEN` or `GH_TOKEN` when set, and otherwise the token held by the `gh` CLI if you are logged in, for 5,000 an hour.
 
 ## Use from Python
 

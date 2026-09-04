@@ -28,6 +28,7 @@ class Ticker:
         self._done = 0
         self._total = 0
         self._current = ""
+        self._inflight: dict[str, str] = {}
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._started = 0.0
@@ -71,6 +72,17 @@ class Ticker:
     def stage_callback(self) -> Callable[[str], None]:
         return self.stage
 
+    def update(self, name: str, stage: str) -> None:
+        """Record the stage of one unit of work in a collection."""
+        with self._lock:
+            self._inflight[name] = stage
+
+    def finish(self, name: str, done: int, total: int) -> None:
+        with self._lock:
+            self._inflight.pop(name, None)
+            self._done, self._total = done, total
+            self._current = f"finished {name}"
+
     # -- rendering -----------------------------------------------------------
 
     def _run(self) -> None:
@@ -83,12 +95,16 @@ class Ticker:
     def _draw(self, frame: str) -> None:
         with self._lock:
             stage, done, total, current = self._stage, self._done, self._total, self._current
+            inflight = list(self._inflight.items())
         elapsed = time.monotonic() - self._started
         if total:
             width = 20
             filled = int(width * done / total)
             bar = BAR_FULL * filled + BAR_EMPTY * (width - filled)
-            line = f"{frame} {bar} {done}/{total} {elapsed:4.0f}s  {current}"
+            busy = "; ".join(f"{n}: {st}" for n, st in inflight[:2])
+            if len(inflight) > 2:
+                busy += f"; +{len(inflight) - 2} more"
+            line = f"{frame} {bar} {done}/{total} {elapsed:4.0f}s  {busy or current}"
         else:
             line = f"{frame} {stage}  {elapsed:4.0f}s"
         line = line[:120]

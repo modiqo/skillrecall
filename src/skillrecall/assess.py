@@ -473,8 +473,19 @@ class Collection:
         }
 
 
+def display_name(skill_dir: str | Path) -> str:
+    """The skill's own directory name, even when it lives in the download cache."""
+    return Path(skill_dir).name.rsplit("__", 1)[-1]
+
+
 def assess_collection(
-    base: Options, skill_dirs: list[Path], source: str, catalog_source: str = "", workers: int = 4, progress=None
+    base: Options,
+    skill_dirs: list[Path],
+    source: str,
+    catalog_source: str = "",
+    workers: int = 4,
+    progress=None,
+    stage=None,
 ) -> Collection:
     """Assess every skill in a collection, each competing against its siblings."""
     from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -484,12 +495,13 @@ def assess_collection(
 
     def one(d: str) -> Assessment:
         opts = Options(**{f.name: getattr(base, f.name) for f in fields(base)})
-        opts.progress = None  # the collection ticker owns the display
+        name = display_name(d)
+        opts.progress = (lambda st, _n=name: stage(_n, st)) if stage else None
         opts.skill_path = d
         opts.sibling_dirs = [x for x in dirs if x != d]
         opts.corpus_dirs = list(base.corpus_dirs)
         if catalog_source:
-            opts.catalog_id = f"{catalog_source}/{Path(d).name}"
+            opts.catalog_id = f"{catalog_source}/{name}"
             opts.source_url = f"https://github.com/{catalog_source}"
         return assess(opts)
 
@@ -502,8 +514,8 @@ def assess_collection(
             try:
                 results.append(fut.result())
             except Exception as e:  # one bad skill must not sink the collection
-                failures.append((Path(d).name, str(e)))
+                failures.append((display_name(d), str(e)))
             if progress:
-                progress(done, len(dirs), Path(d).name)
+                progress(done, len(dirs), display_name(d))
     results.sort(key=lambda a: a.skill.name)
     return Collection(source, results, failures, time.perf_counter() - t0)

@@ -42,3 +42,11 @@ def test_guidance_suggests_close_match():
     text = guidance("o/r", ["code-review", "codebase-design"], missing="code-reveiw")
     assert "Did you mean: code-review" in text
     assert "skillrecall assess o/r/code-review" in text
+
+
+def test_guidance_for_a_large_collection_offers_pick_and_all():
+    names = [f"skill-{i}" for i in range(20)]
+    text = guidance("o/r", names, too_many=True)
+    assert "holds 20 skills" in text and "choose" in text
+    assert "--pick skill-0,skill-1" in text
+    assert "skillrecall assess o/r --all" in text

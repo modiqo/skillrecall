@@ -89,10 +89,30 @@ class _Cache:
             pass
 
 
+_GH_TOKEN: list[str | None] = []
+
+
+def github_token() -> str | None:
+    """GITHUB_TOKEN or GH_TOKEN, else the token the gh CLI holds, else None. Resolved once."""
+    if _GH_TOKEN:
+        return _GH_TOKEN[0]
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if not token:
+        try:
+            import subprocess
+
+            out = subprocess.run(["gh", "auth", "token"], capture_output=True, text=True, timeout=5)
+            token = out.stdout.strip() if out.returncode == 0 else None
+        except (OSError, subprocess.SubprocessError):
+            token = None
+    _GH_TOKEN.append(token or None)
+    return _GH_TOKEN[0]
+
+
 def _http(url: str, timeout: float, accept: str = "*/*") -> bytes | None:
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": accept})
-    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
-    if token and "api.github.com" in url:
+    token = github_token() if "api.github.com" in url else None
+    if token:
         req.add_header("Authorization", f"Bearer {token}")
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
@@ -104,7 +124,7 @@ def _http(url: str, timeout: float, accept: str = "*/*") -> bytes | None:
 class Catalog:
     """Search the public catalog and hydrate neighbours with their descriptions."""
 
-    def __init__(self, timeout: float = 12.0, workers: int = 8, cache: _Cache | None = None, offline: bool = False) -> None:
+    def __init__(self, timeout: float = 12.0, workers: int = 16, cache: _Cache | None = None, offline: bool = False) -> None:
         self.timeout = timeout
         self.workers = workers
         self.cache = cache or _Cache()
@@ -166,11 +186,20 @@ class Catalog:
         if self.offline:
             return None
         text = None
-        for pattern in COMMON_PATHS:
-            data = _http(RAW_URL.format(source=source, path=pattern.format(name=name)), self.timeout)
-            if data and data.lstrip().startswith(b"---"):
-                text = data.decode("utf-8", "replace")
-                break
+        # A tree listing we already hold answers the path question without probing.
+        known_tree = self.cache.get("tree", source, FILE_TTL)
+        if known_tree is not None:
+            path = self._path_in_tree(known_tree, name)
+            if path:
+                data = _http(RAW_URL.format(source=source, path=path), self.timeout)
+                if data:
+                    text = data.decode("utf-8", "replace")
+        if text is None:
+            for pattern in COMMON_PATHS[:3]:
+                data = _http(RAW_URL.format(source=source, path=pattern.format(name=name)), self.timeout)
+                if data and data.lstrip().startswith(b"---"):
+                    text = data.decode("utf-8", "replace")
+                    break
         if text is None:
             path = self._find_in_tree(source, name)
             if path:
@@ -179,6 +208,14 @@ class Catalog:
                     text = data.decode("utf-8", "replace")
         self.cache.put("skillmd", key, {"text": text or ""})
         return text
+
+    @staticmethod
+    def _path_in_tree(tree: list[str], name: str) -> str | None:
+        suffix = f"/{name}/SKILL.md"
+        for p in tree:
+            if p.endswith(suffix) or p == f"{name}/SKILL.md":
+                return p
+        return None
 
     def _find_in_tree(self, source: str, name: str) -> str | None:
         tree = self.cache.get("tree", source, FILE_TTL)
@@ -191,18 +228,17 @@ class Catalog:
             except (ValueError, KeyError, TypeError):
                 return None
             self.cache.put("tree", source, tree)
-        suffix = f"/{name}/SKILL.md"
-        for p in tree:
-            if p.endswith(suffix) or p == f"{name}/SKILL.md":
-                return p
-        return None
+        return self._path_in_tree(tree, name)
 
-    def hydrate(self, found: list[dict], max_neighbours: int = 40) -> list[Candidate]:
-        """Turn search hits into candidates with descriptions, in parallel."""
+    def hydrate(self, found: list[dict], max_neighbours: int = 40, budget: float = 45.0) -> list[Candidate]:
+        """Turn search hits into candidates with descriptions, in parallel, within a time budget."""
         found = found[:max_neighbours]
         results: dict[str, Candidate | None] = {}
+        started = time.monotonic()
 
         def one(hit: dict) -> tuple[str, Candidate | None]:
+            if time.monotonic() - started > budget:
+                return hit["id"], None  # out of time; counted as unavailable
             text = self.fetch_skill_md(hit["source"], hit["name"])
             if not text:
                 return hit["id"], None

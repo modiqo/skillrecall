@@ -8,6 +8,8 @@ from pathlib import Path
 
 from . import __version__
 
+COLLECTION_LIMIT = 8  # above this, a collection asks you to choose unless --all
+
 
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
@@ -35,6 +37,8 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     a.add_argument("--workers", type=int, default=4, help="skills assessed in parallel for a collection (default 4)")
     a.add_argument("--quiet", action="store_true", help="no progress ticker on stderr")
+    a.add_argument("--pick", metavar="NAMES", help="comma-separated skill names to assess from a collection")
+    a.add_argument("--all", action="store_true", help=f"assess every skill in a collection even when it holds more than {COLLECTION_LIMIT}")
     a.add_argument("--corpus", action="append", default=[], metavar="DIR", help="directory of skills to compete against (repeatable)")
     a.add_argument("--installed", action="store_true", help="also compete against skills installed on this machine")
     a.add_argument("--no-catalog", action="store_true", help="skip the public catalog")
@@ -64,9 +68,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _assess(ns: argparse.Namespace) -> int:
-    from .assess import Options, assess, assess_collection
+    from .assess import Options, assess, assess_collection, display_name
     from .progress import Ticker
-    from .remote import is_remote, local_shape, resolve
+    from .remote import guidance, is_remote, local_shape, resolve
     from .report import render_collection_human, render_collection_json, render_human, render_json
 
     ticker = Ticker(enabled=False if ns.quiet else None)
@@ -94,19 +98,43 @@ def _assess(ns: argparse.Namespace) -> int:
         ticker.start("resolving the reference")
         # Detect the shape first: one skill, or a collection of them.
         catalog_source = ""
+        pick = [p for p in (ns.pick or "").split(",") if p.strip()]
         if is_remote(ns.skill):
-            shape, dirs, ref = resolve(ns.skill, timeout=ns.timeout)
+            shape, found, ref = resolve(ns.skill, timeout=ns.timeout)
             source = ref.url
             catalog_source = ref.source
             if shape == "skill":
-                opts.skill_path = str(dirs[0])
+                dirs = [found]
+                opts.skill_path = str(found)
                 opts.source_url = ref.url
                 opts.catalog_id = ref.catalog_id
+            else:
+                names = found.names
+                if not pick and not ns.all and len(names) > COLLECTION_LIMIT:
+                    ticker.stop()
+                    return _fail(guidance(ref.source, names, too_many=True))
+                ticker.stage(f"fetching {len(pick) or len(names)} skills")
+                dirs = found.fetch(pick or None, timeout=ns.timeout)
         else:
             shape, dirs = local_shape(ns.skill)
             source = str(dirs[0].parent if shape == "collection" else dirs[0])
             if shape == "skill":
                 opts.skill_path = str(dirs[0])
+            else:
+                names = [display_name(d) for d in dirs]
+                if pick:
+                    wanted = {p.strip() for p in pick}
+                    dirs = [d for d in dirs if display_name(d) in wanted]
+                    missing = sorted(wanted - {display_name(d) for d in dirs})
+                    if missing:
+                        ticker.stop()
+                        return _fail(guidance(source, names, missing=missing[0], local=True))
+                elif not ns.all and len(names) > COLLECTION_LIMIT:
+                    ticker.stop()
+                    return _fail(guidance(source, names, too_many=True, local=True))
+        if shape == "collection" and len(dirs) == 1:
+            shape = "skill"
+            opts.skill_path = str(dirs[0])
         if shape == "collection":
             ticker.progress(0, len(dirs), "starting")
             coll = assess_collection(
@@ -115,7 +143,8 @@ def _assess(ns: argparse.Namespace) -> int:
                 source,
                 catalog_source,
                 workers=ns.workers,
-                progress=lambda done, total, name: ticker.progress(done, total, f"finished {name}"),
+                progress=ticker.finish,
+                stage=ticker.update,
             )
             text = render_collection_json(coll, ns.detail) if ns.format == "json" else render_collection_human(coll, ns.detail, ns.explain)
         else:

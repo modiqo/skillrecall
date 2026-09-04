@@ -114,13 +114,29 @@ def _tree(source: str, ref: str, cache: _Cache, timeout: float) -> list[str]:
     if tree is None:
         data = _http(TREE_URL_REF.format(source=source, ref=ref), timeout, accept="application/vnd.github+json")
         if data is None:
-            raise RuntimeError(f"could not list files of {source} (network, rate limit, or private repository)")
+            raise RuntimeError(_tree_failure(source, timeout))
         try:
             tree = [t["path"] for t in json.loads(data).get("tree", []) if t.get("type") == "blob"]
         except (ValueError, KeyError, TypeError) as e:
             raise RuntimeError(f"unexpected tree listing for {source}") from e
         cache.put("tree", key, tree)
     return tree
+
+
+def _tree_failure(source: str, timeout: float) -> str:
+    """Explain why a tree listing failed, naming the rate limit when that is the cause."""
+    data = _http("https://api.github.com/rate_limit", timeout, accept="application/vnd.github+json")
+    try:
+        core = json.loads(data)["resources"]["core"] if data else None
+    except (ValueError, KeyError, TypeError):
+        core = None
+    if core and core.get("remaining", 1) == 0:
+        reset = time.strftime("%H:%M", time.localtime(core.get("reset", 0)))
+        return (
+            f"GitHub API rate limit exhausted ({core.get('limit')} requests/hour without a token); it resets at {reset}.\n"
+            "Set GITHUB_TOKEN, or run `gh auth login`, to get 5,000 requests/hour."
+        )
+    return f"could not list files of {source} (network problem or private repository)"
 
 
 def _locate(r: RemoteRef, tree: list[str]) -> str:
@@ -153,28 +169,38 @@ def skill_names(tree: list[str]) -> list[str]:
     return sorted({d.rsplit("/", 1)[-1] for d in skill_dirs_in(tree) if d})
 
 
-def guidance(source: str, names: list[str], missing: str = "") -> str:
+def guidance(source: str, names: list[str], missing: str = "", too_many: bool = False, local: bool = False) -> str:
     """A formatted message that shows exactly how to be specific about a skill."""
+    names = sorted(names)
     lines: list[str] = []
     if missing:
         close = difflib.get_close_matches(missing, names, n=3, cutoff=0.5)
         lines.append(f"No skill named “{missing}” in {source}.")
         if close:
             lines.append(f"Did you mean: {', '.join(close)}")
+        example = (close or names[:1] or ["<skill>"])[0]
+    elif too_many:
+        lines.append(f"{source} holds {len(names)} skills. That is a lot to assess at once, so choose.")
+        example = names[0] if names else "<skill>"
     else:
         lines.append(f"{source} holds {len(names)} skills.")
+        example = names[0] if names else "<skill>"
+    second = next((n for n in names if n != example), example)
     lines.append("")
     lines.append("Pick one:")
-    example = (
-        (difflib.get_close_matches(missing, names, n=1, cutoff=0.5) or names[:1] or ["<skill>"])[0]
-        if missing
-        else (names[0] if names else "<skill>")
-    )
     lines.append(f"  skillrecall assess {source}/{example}")
-    lines.append(f"  skillrecall assess https://github.com/{source}/{example}")
+    if not local:
+        lines.append(f"  skillrecall assess https://github.com/{source}/{example}")
     lines.append("")
-    lines.append("Or assess all of them together, each against its siblings:")
-    lines.append(f"  skillrecall assess {source}")
+    lines.append("Pick a few, and they compete against each other too:")
+    lines.append(f"  skillrecall assess {source} --pick {example},{second}")
+    lines.append("")
+    if too_many:
+        lines.append(f"Or assess all {len(names)} (several minutes, mostly waiting on the catalog):")
+        lines.append(f"  skillrecall assess {source} --all")
+    else:
+        lines.append("Or assess all of them together, each against its siblings:")
+        lines.append(f"  skillrecall assess {source}")
     lines.append("")
     if names:
         lines.append(f"Skills in {source}:")
@@ -199,26 +225,52 @@ def skill_dirs_in(tree: list[str], under: str = "") -> list[str]:
     return sorted(out)
 
 
-def resolve(ref: str, timeout: float = 12.0, workers: int = 8, cache: _Cache | None = None) -> tuple[str, list[Path], RemoteRef]:
-    """Detect the shape of a remote reference and fetch it.
+@dataclass(slots=True)
+class RemoteCollection:
+    """A repository or path holding several skills, listed but not yet downloaded."""
 
-    Returns ("skill", [dir], ref) for a single skill or ("collection",
-    [dirs...], ref) when the reference names a repository or a path that holds
-    several skills.
+    ref: RemoteRef
+    tree: list[str]
+    dirs: list[str]  # repo-relative skill directories
+
+    @property
+    def names(self) -> list[str]:
+        return [d.rsplit("/", 1)[-1] for d in self.dirs]
+
+    def fetch(self, pick: list[str] | None = None, timeout: float = 12.0, workers: int = 8, cache: _Cache | None = None) -> list[Path]:
+        cache = cache or _Cache()
+        chosen = self.dirs
+        if pick:
+            wanted = {p.strip() for p in pick if p.strip()}
+            chosen = [d for d in self.dirs if d.rsplit("/", 1)[-1] in wanted]
+            missing = sorted(wanted - {d.rsplit("/", 1)[-1] for d in chosen})
+            if missing:
+                raise FileNotFoundError(guidance(self.ref.source, self.names, missing=missing[0]))
+        with ThreadPoolExecutor(max_workers=max(1, workers // 2)) as ex:
+            return list(ex.map(lambda d: _download(self.ref, self.tree, d, cache, timeout, 4), chosen))
+
+
+def resolve(
+    ref: str, timeout: float = 12.0, workers: int = 8, cache: _Cache | None = None
+) -> tuple[str, Path | RemoteCollection, RemoteRef]:
+    """Detect the shape of a remote reference.
+
+    Returns ("skill", downloaded_dir, ref) for a single skill, or
+    ("collection", RemoteCollection, ref) when the reference names a
+    repository or path holding several skills. A collection is listed only;
+    call `.fetch()` on the skills the caller decides to assess.
     """
     r = parse_ref(ref)
     cache = cache or _Cache()
     tree = _tree(r.source, r.ref, cache, timeout)
     try:
         skill_dir = _locate(r, tree)
-        return "skill", [_download(r, tree, skill_dir, cache, timeout, workers)], r
+        return "skill", _download(r, tree, skill_dir, cache, timeout, workers), r
     except ValueError as ambiguous:
         dirs = skill_dirs_in(tree, r.path if r.path and not r.catalog_id else "")
         if len(dirs) < 2:
             raise ambiguous
-        with ThreadPoolExecutor(max_workers=max(1, workers // 2)) as ex:
-            paths = list(ex.map(lambda d: _download(r, tree, d, cache, timeout, 4), dirs))
-        return "collection", paths, r
+        return "collection", RemoteCollection(r, tree, dirs), r
 
 
 def materialise(ref: str, timeout: float = 12.0, workers: int = 8, cache: _Cache | None = None) -> tuple[Path, RemoteRef]:
