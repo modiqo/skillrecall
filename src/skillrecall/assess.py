@@ -278,8 +278,7 @@ def assess(opts: Options) -> Assessment:
     for i, c in enumerate(cands, start=1):
         known.setdefault(normalise_name(c.name), i)
     docs: list[Doc] = [build_doc("self", skill.name, skill.description, known, "self")]
-    for i, c in enumerate(cands, start=1):
-        docs.append(build_doc(c.id, c.name, c.description, known, c.origin, c.installs))
+    docs.extend(build_doc(c.id, c.name, c.description, known, c.origin, c.installs) for c in cands)
 
     dense = None
     scorers = ["lexical (BM25, unigrams + bigrams, guard-aware)"]
@@ -498,9 +497,7 @@ def assess_collection(
     failures: list[tuple[str, str]] = []
     with ThreadPoolExecutor(max_workers=max(1, workers)) as ex:
         futures = {ex.submit(one, d): d for d in dirs}
-        done = 0
-        for fut in as_completed(futures):
-            done += 1
+        for done, fut in enumerate(as_completed(futures), start=1):
             d = futures[fut]
             try:
                 results.append(fut.result())
