@@ -34,6 +34,7 @@ STOP = frozenset(
     please help need want make get let just one two about over after before
     would could like via per within without between across through them they
     there here than more most much many very own same other such only both
+    add set put show give take keep look turn run running
         """.split()
 )
 

@@ -15,7 +15,7 @@ def _build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="command", required=True)
 
     a = sub.add_parser("assess", help="assess one skill directory")
-    a.add_argument("skill", help="path to the skill directory or its SKILL.md")
+    a.add_argument("skill", help="skill directory, SKILL.md path, skills.sh link, GitHub link, or owner/repo/skill")
     a.add_argument("--corpus", action="append", default=[], metavar="DIR", help="directory of skills to compete against (repeatable)")
     a.add_argument("--installed", action="store_true", help="also compete against skills installed on this machine")
     a.add_argument("--no-catalog", action="store_true", help="skip the public catalog")
@@ -38,7 +38,7 @@ def _build_parser() -> argparse.ArgumentParser:
     a.add_argument("-o", "--output", metavar="FILE", help="write the report here instead of stdout")
 
     h = sub.add_parser("history", help="show previous runs for a skill")
-    h.add_argument("skill")
+    h.add_argument("skill", help="the same reference you passed to assess")
     h.add_argument("--state-dir", default=None)
     h.add_argument("--format", choices=("human", "json"), default="human")
     return p
@@ -72,7 +72,7 @@ def _assess(ns: argparse.Namespace) -> int:
     except FileNotFoundError as e:
         print(f"skillrecall: {e}", file=sys.stderr)
         return 2
-    except RuntimeError as e:
+    except (RuntimeError, ValueError) as e:
         print(f"skillrecall: {e}", file=sys.stderr)
         return 2
     text = render_json(result, ns.detail) if ns.format == "json" else render_human(result, ns.detail, ns.explain)
@@ -88,8 +88,17 @@ def _history(ns: argparse.Namespace) -> int:
 
     from . import snapshots
 
+    from .remote import is_remote, materialise
+
     root = Path(ns.state_dir) if ns.state_dir else None
-    runs = snapshots.history(ns.skill, root)
+    key = ns.skill
+    if is_remote(key):
+        try:
+            key = str(materialise(key)[0])
+        except (RuntimeError, ValueError, FileNotFoundError) as e:
+            print(f"skillrecall: {e}", file=sys.stderr)
+            return 2
+    runs = snapshots.history(key, root)
     if ns.format == "json":
         print(json.dumps(runs, indent=2))
         return 0

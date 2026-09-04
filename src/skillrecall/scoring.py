@@ -237,17 +237,31 @@ def attribution(router: Router, self_idx: int, own: Sequence[Task], k: int = 6) 
         qt = set(terms(t.text))
         for term, w in router.index.contributions(qt, self_idx).items():
             earned[term] += w
-        for term in tokens(t.text):
-            if term not in have and term not in _TEMPLATE_WORDS:
+        for term in terms(t.text):
+            if term in have:
+                continue
+            if "_" in term:
+                a, b = term.split("_", 1)
+                if a in have or b in have or a in _TEMPLATE_WORDS or b in _TEMPLATE_WORDS:
+                    continue
+                demand[term] += 1.5  # a phrase both of whose words are absent is worth more
+            elif term not in _TEMPLATE_WORDS:
                 demand[term] += 1
     carrying = [t for t, _ in earned.most_common(k)]
     n_docs = max(1, router.index.n)
     max_df = max(1, int(0.15 * n_docs))
-    missing = [
-        t
-        for t, c in demand.most_common(k * 6)
-        if c >= 2 and len(t) >= 4 and len(router.index.postings.get(t, ())) <= max_df
-    ][:k]
+    missing: list[str] = []
+    covered: set[str] = set()
+    for t, c in demand.most_common(k * 8):
+        if c < 2 or len(t) < 4 or len(router.index.postings.get(t, ())) > max_df:
+            continue
+        parts = t.split("_")
+        if any(p in covered for p in parts):
+            continue  # a phrase already covers this word, or the word covers the phrase
+        covered.update(parts)
+        missing.append(t.replace("_", " "))
+        if len(missing) == k:
+            break
     return carrying, missing
 
 

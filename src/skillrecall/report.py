@@ -40,10 +40,13 @@ def render_human(a: Assessment, detail: str = "simple", explain: bool = False) -
     L: list[str] = []
     s = a.skill
     L.append(f"Skill: {s.name}")
-    L.append(f"Path:  {s.path}")
+    if a.options.source_url:
+        L.append(f"Source: {a.options.source_url}")
+    else:
+        L.append(f"Path:  {s.path}")
     L.append(f"Competition: {_competition_line(a)}")
     if a.duplicates:
-        L.append(f"Note: this same skill is installed {len(a.duplicates)} more time(s): {', '.join(a.duplicates)}")
+        L.append(f"Note: an identical copy of this skill also exists at: {', '.join(a.duplicates)}")
     if a.catalog_status.get("error"):
         L.append(f"Note: {a.catalog_status['error']}; results use local competition only.")
     L.append("")

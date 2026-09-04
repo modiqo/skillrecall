@@ -152,8 +152,9 @@ def test_candidate_edits_cover_each_sentence_and_truncations():
     edits = candidate_edits(sk, [], ["headline"], ["clarity"], ["landing-page"])
     kinds = {e.kind for e in edits}
     assert {"remove_sentence", "truncate", "add_terms"} <= kinds
+    # The opening sentence is never offered for removal.
     n_sent = len(sentences(sk.description))
-    assert sum(1 for e in edits if e.kind == "remove_sentence") == n_sent
+    assert sum(1 for e in edits if e.kind == "remove_sentence") == n_sent - 1
 
 
 # --- end to end -------------------------------------------------------------

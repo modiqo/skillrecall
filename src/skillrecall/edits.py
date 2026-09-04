@@ -138,9 +138,13 @@ def candidate_edits(
     desc = skill.description
     ss = sentences(desc)
 
-    # 1. Each sentence removed on its own.
+    # 1. Each sentence removed on its own, except the opening sentence (it states the
+    #    purpose) and any sentence that names the result: those are for people, and a
+    #    lexical router cannot see their value.
     if len(ss) >= 2:
         for i, s in enumerate(ss):
+            if i == 0 or _OUTPUT_VERB.search(s):
+                continue
             short = s if len(s) <= 90 else s[:87] + "..."
             edits.append(Edit("remove_sentence", f"Remove sentence {i + 1}: “{short}”", s, _remove_sentence(s)))
 
@@ -171,7 +175,7 @@ def candidate_edits(
         edits.append(
             Edit(
                 "add_terms",
-                f"Say the words people use when they ask for this ({_join_terms(missing_terms[:4])}); for example add “{sentence}”",
+                f"Add the words people use when they ask for this: “{sentence}”",
                 sentence,
                 _append(sentence),
             )

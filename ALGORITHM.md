@@ -12,6 +12,8 @@ Both are rates over requests, so both need a sample of requests and both get a c
 
 ## Step 1. Load and measure the skill
 
+The skill may be a local directory or a remote reference (a skills.sh link, a GitHub link, or `owner/repo/skill`). A remote skill's text files are listed through the repository tree, downloaded in parallel into the cache, and then treated exactly like a local directory; a catalog copy of the same skill is excluded from its own competition.
+
 `SKILL.md` is split into header and body. The header's `name` and `description` form the resident text, the only thing visible before selection. The body is read after selection; files in the directory are read only when the body points at them.
 
 Measured: resident tokens, description tokens, body lines and tokens, reference files and their sizes, script count, section headings. Tokens are exact when a tokenizer is installed and a deterministic estimate otherwise; the report says which.

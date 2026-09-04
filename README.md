@@ -27,7 +27,15 @@ The core has no dependencies beyond Python 3.11. Optional extras:
 skillrecall assess path/to/my-skill
 ```
 
-That competes your skill against the closest skills in the public catalog. Add the skills already installed on your machine, or a directory of your own:
+That competes your skill against the closest skills in the public catalog. The skill does not have to be on disk. A skills.sh link, a GitHub link, or an `owner/repo/skill` id works the same way; the skill's files are fetched once and cached:
+
+```sh
+skillrecall assess https://skills.sh/owner/repo/my-skill
+skillrecall assess https://github.com/owner/repo/tree/main/skills/my-skill
+skillrecall assess owner/repo/my-skill
+```
+
+Add the skills already installed on your machine, or a directory of your own:
 
 ```sh
 skillrecall assess path/to/my-skill --installed

@@ -9,6 +9,7 @@ from pathlib import Path
 
 from . import snapshots
 from .corpus import Candidate, candidates_from_dir, dedupe_against, installed_candidates
+from .remote import is_remote, materialise
 from .edits import Edit, Stealer, candidate_edits, compose, evaluate_edits
 from .scoring import Doc, Router, attribution, build_doc, evaluate, normalise_name
 from .skill import Skill, load_skill
@@ -41,6 +42,7 @@ class Options:
     state_root: Path | None = None
     top_k: int = 3
     timeout: float = 12.0
+    source_url: str = ""  # filled in when skill_path was a remote reference
 
 
 @dataclass(slots=True)
@@ -148,6 +150,7 @@ class Assessment:
             "skill": {
                 "name": self.skill.name,
                 "path": self.skill.path,
+                "source": self.options.source_url,
                 "description": self.skill.description,
                 "resident_tokens": self.skill.resident_tokens,
                 "description_tokens": self.skill.description_tokens,
@@ -204,7 +207,7 @@ class Assessment:
 # ---------------------------------------------------------------------------
 
 
-def _gather(skill: Skill, opts: Options) -> tuple[list[Candidate], list[Candidate], dict]:
+def _gather(skill: Skill, opts: Options, self_id: str = "") -> tuple[list[Candidate], list[Candidate], dict]:
     cands: list[Candidate] = []
     for d in opts.corpus_dirs:
         cands.extend(candidates_from_dir(d, origin="local"))
@@ -218,7 +221,7 @@ def _gather(skill: Skill, opts: Options) -> tuple[list[Candidate], list[Candidat
         desc = strip_markdown(skill.description)
         first = desc.split(". ")[0]
         queries = [desc, f"{' '.join(skill.name.split('-'))}: {first}"]
-        found = cat.neighbours(queries, limit=min(200, max(20, opts.neighbours)))
+        found = [h for h in cat.neighbours(queries, limit=min(200, max(20, opts.neighbours))) if h["id"] != self_id]
         cands.extend(cat.hydrate(found, max_neighbours=opts.neighbours))
         status.update({f.name: getattr(cat.status, f.name) for f in fields(cat.status)})
     # Merge: one candidate per (name, description) text, first origin wins.
@@ -242,8 +245,15 @@ def _distinctive(cand: Candidate, own_terms: set[str], k: int = 3) -> list[str]:
 def assess(opts: Options) -> Assessment:
     t0 = time.perf_counter()
     counter = TokenCounter()
-    skill = load_skill(opts.skill_path, counter)
-    cands, dups, cat_status = _gather(skill, opts)
+    self_id = ""
+    if is_remote(opts.skill_path):
+        local, ref = materialise(opts.skill_path, timeout=opts.timeout)
+        opts.source_url = ref.url
+        self_id = ref.catalog_id
+        skill = load_skill(local, counter)
+    else:
+        skill = load_skill(opts.skill_path, counter)
+    cands, dups, cat_status = _gather(skill, opts, self_id)
 
     # Docs: the author's skill is index 0.
     known: dict[str, int] = {normalise_name(skill.name): 0}
