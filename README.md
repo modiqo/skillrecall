@@ -9,17 +9,25 @@ You edit, run it again, and it tells you what moved.
 ## Install
 
 ```sh
-uv tool install skillrecall          # or: pipx install skillrecall
+uv tool install git+https://github.com/modiqo/skillrecall
 ```
+
+Or pin a release wheel:
+
+```sh
+uv tool install https://github.com/modiqo/skillrecall/releases/download/v0.1.0/skillrecall-0.1.0-py3-none-any.whl
+```
+
+`pipx install git+https://github.com/modiqo/skillrecall` works the same way. The package is not on PyPI yet; `uv tool install skillrecall` will work once it is.
 
 The core has no dependencies beyond Python 3.11. Optional extras:
 
 | Extra | Adds | Install |
 |---|---|---|
-| `tokens` | Exact token counts instead of estimates | `uv tool install "skillrecall[tokens]"` |
-| `dense` | A local embedding model as a second scorer | `uv tool install "skillrecall[dense]"` |
-| `router` | A reference run that asks a model to route a sample of tasks | `uv tool install "skillrecall[router]"` |
-| `all` | Everything above | `uv tool install "skillrecall[all]"` |
+| `tokens` | Exact token counts instead of estimates | `uv tool install "skillrecall[tokens] @ git+https://github.com/modiqo/skillrecall"` |
+| `dense` | A local embedding model as a second scorer | `uv tool install "skillrecall[dense] @ git+https://github.com/modiqo/skillrecall"` |
+| `router` | A reference run that asks a model to route a sample of tasks | `uv tool install "skillrecall[router] @ git+https://github.com/modiqo/skillrecall"` |
+| `all` | Everything above | `uv tool install "skillrecall[all] @ git+https://github.com/modiqo/skillrecall"` |
 
 ## Use
 
