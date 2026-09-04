@@ -298,9 +298,7 @@ def render_collection_human(c, detail: str = "simple", explain: bool = False) ->
         for a in fine:
             flag = "*" if a.weak_seeds else " "
             step = _first_step(a)
-            L.append(
-                f"  {a.skill.name[:32]:<32} {per_ten_phrase(a.recall.value).replace('about ', ''):>9} {per_ten_phrase(a.false_positives.value).replace('about ', ''):>9} {flag} {step}"
-            )
+            L.append(f"  {a.skill.name[:32]:<32} {a.recall.per_ten:>2} in 10  {a.false_positives.per_ten:>2} in 10 {flag} {step}")
     L.append("")
 
     pairs = [p for p in c.sibling_pairs if p.a_takes_b >= 0.1 or p.b_takes_a >= 0.1]
