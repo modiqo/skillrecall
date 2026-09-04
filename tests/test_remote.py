@@ -46,6 +46,19 @@ def test_parse_shorthand():
     assert deep.path == "skills/skill" and deep.catalog_id == ""
 
 
+def test_parse_github_skill_without_tree_segment():
+    r = parse_ref("https://github.com/owner/repo/code-review")
+    assert r.path == "code-review" and r.catalog_id == "owner/repo/code-review"
+    deep = parse_ref("https://github.com/owner/repo/skills/code-review")
+    assert deep.path == "skills/code-review" and deep.catalog_id == ""
+
+
+def test_locate_falls_back_from_path_to_skill_name():
+    r = RemoteRef("o/r", "code-review", "HEAD", "", "o/r/code-review")
+    assert _locate(r, ["skills/code-review/SKILL.md"]) == "skills/code-review"
+    assert _locate(r, ["code-review/SKILL.md"]) == "code-review"
+
+
 def test_parse_rejects_unknown_host():
     with pytest.raises(ValueError):
         parse_ref("https://example.com/owner/repo/skill")

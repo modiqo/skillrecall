@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "skillrecall"
-version = "0.1.0"
+version = "0.1.1"
 description = "Assess an agent skill for how reliably it gets picked when installed alongside other skills, and get ranked edits to improve it."
 readme = "README.md"
 license = { text = "MIT" }

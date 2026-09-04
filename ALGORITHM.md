@@ -18,6 +18,10 @@ The skill may be a local directory or a remote reference (a skills.sh link, a Gi
 
 Measured: resident tokens, description tokens, body lines and tokens, reference files and their sizes, script count, section headings. Tokens are exact when a tokenizer is installed and a deterministic estimate otherwise; the report says which.
 
+### Collections
+
+When the reference holds several skills (a repository, a `skills/` directory, a local folder), each skill is assessed in turn with every sibling added to its competition under the origin `sibling`. The summary sorts skills by pickup rate and lists sibling pairs that win each other's tasks, since a collection's own members are the competitors an author can actually change.
+
 ## Step 2. Assemble the competition
 
 Competitors come from three places, tagged by origin:

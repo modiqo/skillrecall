@@ -37,6 +37,13 @@ skillrecall assess https://github.com/owner/repo/tree/main/skills/my-skill
 skillrecall assess owner/repo/my-skill
 ```
 
+A reference that holds several skills is assessed as a collection: a whole repository, a `skills/` directory, or a local folder of skills. Every skill competes against its siblings (plus the catalog unless you say `--no-catalog`) and you get one table, weakest first, plus the pairs inside the collection that take each other's tasks.
+
+```sh
+skillrecall assess https://github.com/owner/repo     # every skill in the repo
+skillrecall assess ./skills --no-catalog             # local collection, siblings only
+```
+
 Add the skills already installed on your machine, or a directory of your own:
 
 ```sh
@@ -86,6 +93,24 @@ Structure
 
 Every edit shown was applied to a copy of your description and rescored on the same requests. Edits that would hurt are not shown. When you rerun after editing, the report opens with what changed.
 
+### What you get for a collection
+
+```
+Collection: https://github.com/owner/repo
+12 skills assessed, each against its siblings and the public catalog, in 41s.
+
+Weakest first
+  skill               picked  mistaken  top-3  biggest competitor                 first thing to do
+  handoff            4 in 10   1 in 10   6/10  claude-handoff (same repo) takes 3 in 10   Add a hand-off to claude-handoff: ...
+  grilling           6 in 10   0 in 10   8/10  grill-me (same repo) takes 2 in 10         Remove sentence 3: ...
+  ...
+
+Pairs in this repo that take each other's tasks
+  claude-handoff   answers about 3 in 10 of handoff's tasks; the reverse is about 2 in 10
+```
+
+Add `--detail detailed` to append every skill's full report, or `--format json` for one document with a `skills` array and `sibling_pairs`.
+
 ### Output formats
 
 ```sh
@@ -104,6 +129,7 @@ The JSON has a stable top level: `skill`, `competition`, `pickup`, `takes_your_t
 | Flag | Default | Meaning |
 |---|---|---|
 | `--neighbours N` | 40 | How many catalog skills to compete against |
+| `--workers N` | 4 | Skills assessed in parallel when the reference is a collection |
 | `--tasks N` | 100 | How many of your own requests to sample; more gives a tighter confidence range |
 | `--installed` | off | Also compete against every skill installed on this machine |
 | `--corpus DIR` | | Compete against a directory of skills; repeatable |

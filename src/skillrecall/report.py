@@ -20,12 +20,18 @@ def _fmt_installs(n: int) -> str:
 
 
 def _label(n) -> str:
-    return f"{n.name} ({n.source})" if n.origin == "catalog" and n.source else n.name
+    if n.origin == "catalog" and n.source:
+        return f"{n.name} ({n.source})"
+    if n.origin == "sibling":
+        return f"{n.name} (same repo)"
+    return n.name
 
 
 def _competition_line(a: Assessment) -> str:
     by = Counter(n.origin for n in a.neighbours)
     parts = []
+    if by.get("sibling"):
+        parts.append(f"{by['sibling']} in the same repo")
     if by.get("installed"):
         parts.append(f"{by['installed']} installed here")
     if by.get("local"):
@@ -198,3 +204,67 @@ def _explain(a: Assessment) -> list[str]:
 
 def render_json(a: Assessment, detail: str = "simple") -> str:
     return json.dumps(a.as_dict(detail == "detailed"), indent=2, ensure_ascii=False) + "\n"
+
+
+# ---------------------------------------------------------------------------
+# Collections
+
+
+def _first_step(a: Assessment) -> str:
+    if a.edits:
+        text = a.edits[0].instruction
+        return text if len(text) <= 60 else text[:57] + "..."
+    fix = next((f for f in a.findings if f.severity == "fix"), None)
+    if fix:
+        return fix.message if len(fix.message) <= 60 else fix.message[:57] + "..."
+    return "nothing measured"
+
+
+def _biggest(a: Assessment) -> str:
+    st = a.stealers
+    if not st or st[0].takes < 0.05:
+        return "-"
+    n = st[0]
+    return f"{_label(n)} takes {per_ten_phrase(n.takes).replace('about ', '')}"
+
+
+def render_collection_human(c, detail: str = "simple", explain: bool = False) -> str:
+    from .assess import Collection  # noqa: F401  (type only)
+
+    L: list[str] = []
+    n = len(c.skills)
+    L.append(f"Collection: {c.source}")
+    L.append(f"{n} skill{'s' if n != 1 else ''} assessed, each against its siblings" + (" and the public catalog" if any(x.origin == "catalog" for a in c.skills for x in a.neighbours) else "") + f", in {c.elapsed:.0f}s.")
+    if c.failures:
+        L.append(f"Could not assess {len(c.failures)}: " + ", ".join(f"{name} ({err})" for name, err in c.failures[:5]))
+    L.append("")
+    L.append("Weakest first")
+    L.append(f"  {'skill':<30} {'picked':>8} {'mistaken':>9} {'top-3':>6}  {'biggest competitor':<44} first thing to do")
+    for a in sorted(c.skills, key=lambda a: (a.recall.value, -a.false_positives.value)):
+        picked = f"{a.recall.per_ten} in 10"
+        mistaken = f"{a.false_positives.per_ten} in 10"
+        top = f"{a.composition.per_ten}/10" if a.composition.n else "-"
+        weak = "*" if a.weak_seeds else " "
+        L.append(f"  {a.skill.name[:30]:<30} {picked:>8} {mistaken:>9} {top:>6} {weak} {_biggest(a)[:44]:<44} {_first_step(a)}")
+    if any(a.weak_seeds for a in c.skills):
+        L.append("  * body has few example requests; tasks came from the description, so treat that row as low confidence")
+    L.append("")
+    pairs = [p for p in c.sibling_pairs if p.a_takes_b >= 0.1 or p.b_takes_a >= 0.1]
+    L.append("Pairs in this repo that take each other's tasks")
+    if pairs:
+        for p in pairs[:10]:
+            L.append(f"  {p.a:<30} answers {per_ten_phrase(p.a_takes_b):<14} of {p.b}'s tasks; the reverse is {per_ten_phrase(p.b_takes_a)}")
+    else:
+        L.append("  None above 1 in 10. The skills in this repo stay out of each other's way.")
+    L.append("")
+    L.append("For one skill's full report: skillrecall assess <this reference>/<skill>")
+    if detail == "detailed":
+        for a in sorted(c.skills, key=lambda a: a.recall.value):
+            L.append("")
+            L.append("=" * 78)
+            L.append(render_human(a, "detailed", explain).rstrip())
+    return "\n".join(L).rstrip() + "\n"
+
+
+def render_collection_json(c, detail: str = "simple") -> str:
+    return json.dumps(c.as_dict(detail == "detailed"), indent=2, ensure_ascii=False) + "\n"

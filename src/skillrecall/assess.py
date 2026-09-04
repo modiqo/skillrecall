@@ -8,7 +8,7 @@ from dataclasses import dataclass, field, fields
 from pathlib import Path
 
 from . import snapshots
-from .corpus import Candidate, candidates_from_dir, dedupe_against, installed_candidates
+from .corpus import Candidate, candidates_from_dir, candidates_from_paths, dedupe_against, installed_candidates
 from .remote import is_remote, materialise
 from .edits import Edit, Stealer, candidate_edits, compose, evaluate_edits
 from .scoring import Doc, Router, attribution, build_doc, evaluate, normalise_name
@@ -43,6 +43,8 @@ class Options:
     top_k: int = 3
     timeout: float = 12.0
     source_url: str = ""  # filled in when skill_path was a remote reference
+    sibling_dirs: list[str] = field(default_factory=list)  # other skills shipped with this one
+    catalog_id: str = ""  # this skill's own catalog id, excluded from its competition
 
 
 @dataclass(slots=True)
@@ -209,6 +211,7 @@ class Assessment:
 
 def _gather(skill: Skill, opts: Options, self_id: str = "") -> tuple[list[Candidate], list[Candidate], dict]:
     cands: list[Candidate] = []
+    cands.extend(candidates_from_paths(opts.sibling_dirs, origin="sibling"))
     for d in opts.corpus_dirs:
         cands.extend(candidates_from_dir(d, origin="local"))
     if opts.include_installed:
@@ -245,7 +248,7 @@ def _distinctive(cand: Candidate, own_terms: set[str], k: int = 3) -> list[str]:
 def assess(opts: Options) -> Assessment:
     t0 = time.perf_counter()
     counter = TokenCounter()
-    self_id = ""
+    self_id = opts.catalog_id
     if is_remote(opts.skill_path):
         local, ref = materialise(opts.skill_path, timeout=opts.timeout)
         opts.source_url = ref.url
@@ -398,3 +401,89 @@ def assess(opts: Options) -> Assessment:
     if opts.save_snapshot:
         snapshots.save(a.summary(), skill.path, opts.state_root)
     return a
+
+
+# ---------------------------------------------------------------------------
+# Collections: a repository or directory holding several skills.
+
+
+@dataclass(slots=True)
+class SiblingPair:
+    a: str
+    b: str
+    a_takes_b: float  # share of b's tasks that a wins
+    b_takes_a: float
+
+    def as_dict(self) -> dict:
+        return {"a": self.a, "b": self.b, "a_takes_b": round(self.a_takes_b, 4), "b_takes_a": round(self.b_takes_a, 4)}
+
+
+@dataclass(slots=True)
+class Collection:
+    source: str
+    skills: list[Assessment]
+    failures: list[tuple[str, str]]
+    elapsed: float
+
+    @property
+    def sibling_pairs(self) -> list[SiblingPair]:
+        takes: dict[tuple[str, str], float] = {}
+        for a in self.skills:
+            for n in a.neighbours:
+                if n.origin == "sibling" and n.taken > 0:
+                    takes[(a.skill.name, n.name)] = n.taken  # a wins n's tasks
+        seen: set[frozenset[str]] = set()
+        pairs: list[SiblingPair] = []
+        for (x, y), share in takes.items():
+            key = frozenset((x, y))
+            if key in seen:
+                continue
+            seen.add(key)
+            pairs.append(SiblingPair(x, y, share, takes.get((y, x), 0.0)))
+        pairs.sort(key=lambda p: -(p.a_takes_b + p.b_takes_a))
+        return pairs
+
+    def as_dict(self, detail: bool = False) -> dict:
+        return {
+            "schema": "skillrecall/collection/v1",
+            "source": self.source,
+            "skills": [a.as_dict(detail) for a in sorted(self.skills, key=lambda a: a.recall.value)],
+            "sibling_pairs": [p.as_dict() for p in self.sibling_pairs],
+            "failures": [{"skill": n, "error": e} for n, e in self.failures],
+            "elapsed_seconds": round(self.elapsed, 3),
+        }
+
+
+def assess_collection(base: Options, skill_dirs: list[Path], source: str, catalog_source: str = "", workers: int = 4, progress=None) -> Collection:
+    """Assess every skill in a collection, each competing against its siblings."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    t0 = time.perf_counter()
+    dirs = [str(d) for d in skill_dirs]
+
+    def one(d: str) -> Assessment:
+        opts = Options(**{f.name: getattr(base, f.name) for f in fields(base)})
+        opts.skill_path = d
+        opts.sibling_dirs = [x for x in dirs if x != d]
+        opts.corpus_dirs = list(base.corpus_dirs)
+        if catalog_source:
+            opts.catalog_id = f"{catalog_source}/{Path(d).name}"
+            opts.source_url = f"https://github.com/{catalog_source}"
+        return assess(opts)
+
+    results: list[Assessment] = []
+    failures: list[tuple[str, str]] = []
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as ex:
+        futures = {ex.submit(one, d): d for d in dirs}
+        done = 0
+        for fut in as_completed(futures):
+            done += 1
+            d = futures[fut]
+            try:
+                results.append(fut.result())
+            except Exception as e:  # one bad skill must not sink the collection
+                failures.append((Path(d).name, str(e)))
+            if progress:
+                progress(done, len(dirs), Path(d).name)
+    results.sort(key=lambda a: a.skill.name)
+    return Collection(source, results, failures, time.perf_counter() - t0)

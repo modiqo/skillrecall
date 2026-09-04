@@ -10,12 +10,28 @@ from . import __version__
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="skillrecall", description="Measure how reliably a skill gets picked next to other skills, and what to change.")
+    p = argparse.ArgumentParser(
+        prog="skillrecall",
+        description="Measure how reliably a skill gets picked next to other skills, and what to change.",
+        epilog=(
+            "A skill reference can be a local directory, a SKILL.md path, a skills.sh link, a GitHub link, or\n"
+            "owner/repo/skill. A reference that holds several skills (a repository, a skills/ directory) is\n"
+            "assessed as a collection: every skill competes against its siblings and you get one summary table.\n\n"
+            "examples:\n"
+            "  skillrecall assess ./my-skill --installed\n"
+            "  skillrecall assess https://skills.sh/owner/repo/skill\n"
+            "  skillrecall assess https://github.com/owner/repo/skill\n"
+            "  skillrecall assess owner/repo                # whole repo, one row per skill\n"
+            "  skillrecall assess ./skills --no-catalog     # local collection, siblings only\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     p.add_argument("--version", action="version", version=f"skillrecall {__version__}")
     sub = p.add_subparsers(dest="command", required=True)
 
-    a = sub.add_parser("assess", help="assess one skill directory")
-    a.add_argument("skill", help="skill directory, SKILL.md path, skills.sh link, GitHub link, or owner/repo/skill")
+    a = sub.add_parser("assess", help="assess a skill, or every skill in a repository or directory")
+    a.add_argument("skill", help="skill directory, SKILL.md path, skills.sh link, GitHub link, owner/repo/skill, or a repository/directory of skills")
+    a.add_argument("--workers", type=int, default=4, help="skills assessed in parallel for a collection (default 4)")
     a.add_argument("--corpus", action="append", default=[], metavar="DIR", help="directory of skills to compete against (repeatable)")
     a.add_argument("--installed", action="store_true", help="also compete against skills installed on this machine")
     a.add_argument("--no-catalog", action="store_true", help="skip the public catalog")
@@ -45,8 +61,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _assess(ns: argparse.Namespace) -> int:
-    from .assess import Options, assess
-    from .report import render_human, render_json
+    from .assess import Options, assess, assess_collection
+    from .remote import is_remote, local_shape, resolve
+    from .report import render_collection_human, render_collection_json, render_human, render_json
 
     opts = Options(
         skill_path=ns.skill,
@@ -68,14 +85,39 @@ def _assess(ns: argparse.Namespace) -> int:
         timeout=ns.timeout,
     )
     try:
-        result = assess(opts)
+        # Detect the shape first: one skill, or a collection of them.
+        catalog_source = ""
+        if is_remote(ns.skill):
+            shape, dirs, ref = resolve(ns.skill, timeout=ns.timeout)
+            source = ref.url
+            catalog_source = ref.source
+            if shape == "skill":
+                opts.skill_path = str(dirs[0])
+                opts.source_url = ref.url
+                opts.catalog_id = ref.catalog_id
+        else:
+            shape, dirs = local_shape(ns.skill)
+            source = str(dirs[0].parent if shape == "collection" else dirs[0])
+            if shape == "skill":
+                opts.skill_path = str(dirs[0])
+        if shape == "collection":
+            def progress(done: int, total: int, name: str) -> None:
+                if sys.stderr.isatty():
+                    print(f"\r  assessed {done}/{total} ({name})".ljust(60), end="", file=sys.stderr, flush=True)
+                    if done == total:
+                        print(file=sys.stderr)
+
+            coll = assess_collection(opts, dirs, source, catalog_source, workers=ns.workers, progress=progress)
+            text = render_collection_json(coll, ns.detail) if ns.format == "json" else render_collection_human(coll, ns.detail, ns.explain)
+        else:
+            result = assess(opts)
+            text = render_json(result, ns.detail) if ns.format == "json" else render_human(result, ns.detail, ns.explain)
     except FileNotFoundError as e:
         print(f"skillrecall: {e}", file=sys.stderr)
         return 2
     except (RuntimeError, ValueError) as e:
         print(f"skillrecall: {e}", file=sys.stderr)
         return 2
-    text = render_json(result, ns.detail) if ns.format == "json" else render_human(result, ns.detail, ns.explain)
     if ns.output:
         Path(ns.output).write_text(text, encoding="utf-8")
     else:

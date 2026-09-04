@@ -76,23 +76,29 @@ def parse_ref(ref: str) -> RemoteRef:
             if len(parts) < 2:
                 raise ValueError(f"a GitHub link needs owner/repo: {ref}")
             owner, repo = parts[0], parts[1].removesuffix(".git")
-            branch, path = "HEAD", ""
+            branch, path, catalog_id = "HEAD", "", ""
             if host == "github.com" and len(parts) >= 4 and parts[2] in ("tree", "blob"):
                 branch = parts[3]
                 path = "/".join(parts[4:])
             elif host == "raw.githubusercontent.com" and len(parts) >= 3:
                 branch = parts[2]
                 path = "/".join(parts[3:])
+            elif host == "github.com" and len(parts) >= 3:
+                # github.com/owner/repo/<skill-or-path>: try it as a path, then as a skill name.
+                path = "/".join(parts[2:])
+                if len(parts) == 3:
+                    catalog_id = f"{owner}/{repo}/{parts[2]}"
             if path.endswith("SKILL.md"):
                 path = path[: -len("SKILL.md")].rstrip("/")
-            return RemoteRef(f"{owner}/{repo}", path, branch, f"https://github.com/{owner}/{repo}" + (f"/tree/{branch}/{path}" if path else ""), "")
+            return RemoteRef(f"{owner}/{repo}", path, branch, f"https://github.com/{owner}/{repo}" + (f"/tree/{branch}/{path}" if path else ""), catalog_id)
         raise ValueError(f"unsupported host in {ref}")
     m = _SHORT.match(raw)
     if not m:
         raise ValueError(f"not a recognised skill reference: {ref}")
     owner, repo, rest = m.group(1), m.group(2), m.group(3) or ""
     if rest and "/" not in rest:
-        return RemoteRef(f"{owner}/{repo}", "", "HEAD", f"https://skills.sh/{owner}/{repo}/{rest}", f"{owner}/{repo}/{rest}")
+        # owner/repo/name: a path if such a directory exists, else a skill name.
+        return RemoteRef(f"{owner}/{repo}", rest, "HEAD", f"https://skills.sh/{owner}/{repo}/{rest}", f"{owner}/{repo}/{rest}")
     return RemoteRef(f"{owner}/{repo}", rest, "HEAD", f"https://github.com/{owner}/{repo}" + (f"/tree/HEAD/{rest}" if rest else ""), "")
 
 
@@ -113,9 +119,9 @@ def _tree(source: str, ref: str, cache: _Cache, timeout: float) -> list[str]:
 
 def _locate(r: RemoteRef, tree: list[str]) -> str:
     """Directory inside the repo that holds SKILL.md for this reference."""
-    if r.path:
-        if f"{r.path}/SKILL.md" in tree:
-            return r.path
+    if r.path and f"{r.path}/SKILL.md" in tree:
+        return r.path
+    if r.path and not r.catalog_id:
         raise FileNotFoundError(f"no SKILL.md under {r.path} in {r.source}")
     skill = r.catalog_id.rsplit("/", 1)[-1] if r.catalog_id else ""
     if skill:
@@ -138,12 +144,52 @@ def _locate(r: RemoteRef, tree: list[str]) -> str:
     raise ValueError(f"{r.source} holds {len(candidates)} skills; name one, for example {r.source}/<skill>. Found: {names}")
 
 
+def skill_dirs_in(tree: list[str], under: str = "") -> list[str]:
+    """Every directory holding a SKILL.md below `under`, hidden and vendored paths excluded."""
+    prefix = f"{under}/" if under else ""
+    out = []
+    for p in tree:
+        if not p.endswith("SKILL.md") or not p.startswith(prefix):
+            continue
+        parts = p.split("/")
+        if any(seg.startswith(".") or seg == "node_modules" for seg in parts[:-1]):
+            continue
+        out.append(p[: -len("SKILL.md")].rstrip("/"))
+    return sorted(out)
+
+
+def resolve(ref: str, timeout: float = 12.0, workers: int = 8, cache: _Cache | None = None) -> tuple[str, list[Path], RemoteRef]:
+    """Detect the shape of a remote reference and fetch it.
+
+    Returns ("skill", [dir], ref) for a single skill or ("collection",
+    [dirs...], ref) when the reference names a repository or a path that holds
+    several skills.
+    """
+    r = parse_ref(ref)
+    cache = cache or _Cache()
+    tree = _tree(r.source, r.ref, cache, timeout)
+    try:
+        skill_dir = _locate(r, tree)
+        return "skill", [_download(r, tree, skill_dir, cache, timeout, workers)], r
+    except ValueError as ambiguous:
+        dirs = skill_dirs_in(tree, r.path if r.path and not r.catalog_id else "")
+        if len(dirs) < 2:
+            raise ambiguous
+        with ThreadPoolExecutor(max_workers=max(1, workers // 2)) as ex:
+            paths = list(ex.map(lambda d: _download(r, tree, d, cache, timeout, 4), dirs))
+        return "collection", paths, r
+
+
 def materialise(ref: str, timeout: float = 12.0, workers: int = 8, cache: _Cache | None = None) -> tuple[Path, RemoteRef]:
-    """Download the skill's text files into the cache and return the local directory."""
+    """Download one skill's text files into the cache and return the local directory."""
     r = parse_ref(ref)
     cache = cache or _Cache()
     tree = _tree(r.source, r.ref, cache, timeout)
     skill_dir = _locate(r, tree)
+    return _download(r, tree, skill_dir, cache, timeout, workers), r
+
+
+def _download(r: RemoteRef, tree: list[str], skill_dir: str, cache: _Cache, timeout: float, workers: int) -> Path:
     prefix = f"{skill_dir}/" if skill_dir else ""
     wanted = [p for p in tree if p.startswith(prefix) and Path(p).suffix.lower() in _TEXT_EXT and not any(seg.startswith(".") for seg in p.split("/"))]
     wanted.sort(key=lambda p: (0 if p == f"{prefix}SKILL.md" else 1, p))
@@ -154,7 +200,7 @@ def materialise(ref: str, timeout: float = 12.0, workers: int = 8, cache: _Cache
     dest = cache_dir() / "remote" / r.source.replace("/", "__") / r.ref / (skill_dir.replace("/", "__") or "_root")
     stamp = dest / ".fetched"
     if stamp.is_file() and time.time() - stamp.stat().st_mtime < FILE_TTL and (dest / "SKILL.md").is_file():
-        return dest, r
+        return dest
     dest.mkdir(parents=True, exist_ok=True)
 
     def one(p: str) -> None:
@@ -170,4 +216,26 @@ def materialise(ref: str, timeout: float = 12.0, workers: int = 8, cache: _Cache
     if not (dest / "SKILL.md").is_file():
         raise RuntimeError(f"could not download SKILL.md from {r.source}")
     stamp.touch()
-    return dest, r
+    return dest
+
+
+def local_shape(path: str) -> tuple[str, list[Path]]:
+    """("skill", [dir]) when `path` is a skill, ("collection", [dirs...]) when it holds several."""
+    p = Path(path).expanduser()
+    if p.is_file():
+        return "skill", [p.parent]
+    if (p / "SKILL.md").is_file():
+        return "skill", [p]
+    found: list[Path] = []
+    for dirpath, dirnames, filenames in os.walk(p):
+        dirnames[:] = [d for d in dirnames if not d.startswith(".") and d != "node_modules"]
+        if "SKILL.md" in filenames:
+            found.append(Path(dirpath))
+            dirnames[:] = []
+        elif Path(dirpath).relative_to(p).parts.__len__() >= 3:
+            dirnames[:] = []
+    if not found:
+        raise FileNotFoundError(f"no SKILL.md under {p}")
+    if len(found) == 1:
+        return "skill", found
+    return "collection", sorted(found)

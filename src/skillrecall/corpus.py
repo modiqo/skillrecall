@@ -80,6 +80,21 @@ def candidates_from_dir(root: str | os.PathLike[str], origin: str = "local") -> 
     return out
 
 
+def candidates_from_paths(paths: Iterable[str | os.PathLike[str]], origin: str) -> list[Candidate]:
+    """Candidates from explicit skill directories (used for siblings in a collection)."""
+    out: list[Candidate] = []
+    for path in paths:
+        d = Path(path)
+        try:
+            sk = load_skill(d)
+        except Exception:
+            continue
+        if not sk.description:
+            continue
+        out.append(Candidate(id=f"{origin}:{d.name}", name=sk.name, description=sk.description, origin=origin, source=str(d), body=sk.body, url=str(d), skill=sk))
+    return out
+
+
 def installed_candidates(roots: Iterable[str] = INSTALLED_ROOTS) -> list[Candidate]:
     out: list[Candidate] = []
     seen: set[str] = set()
