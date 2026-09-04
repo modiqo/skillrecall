@@ -9,25 +9,19 @@ You edit, run it again, and it tells you what moved.
 ## Install
 
 ```sh
-uv tool install git+https://github.com/modiqo/skillrecall
+uv tool install skillrecall          # or: pipx install skillrecall
 ```
 
-Or pin a release wheel:
-
-```sh
-uv tool install https://github.com/modiqo/skillrecall/releases/download/v0.1.0/skillrecall-0.1.0-py3-none-any.whl
-```
-
-`pipx install git+https://github.com/modiqo/skillrecall` works the same way. The package is not on PyPI yet; `uv tool install skillrecall` will work once it is.
+To track main instead of a release: `uv tool install git+https://github.com/modiqo/skillrecall`. Release wheels are also attached to each [GitHub release](https://github.com/modiqo/skillrecall/releases).
 
 The core has no dependencies beyond Python 3.11. Optional extras:
 
 | Extra | Adds | Install |
 |---|---|---|
-| `tokens` | Exact token counts instead of estimates | `uv tool install "skillrecall[tokens] @ git+https://github.com/modiqo/skillrecall"` |
-| `dense` | A local embedding model as a second scorer | `uv tool install "skillrecall[dense] @ git+https://github.com/modiqo/skillrecall"` |
-| `router` | A reference run that asks a model to route a sample of tasks | `uv tool install "skillrecall[router] @ git+https://github.com/modiqo/skillrecall"` |
-| `all` | Everything above | `uv tool install "skillrecall[all] @ git+https://github.com/modiqo/skillrecall"` |
+| `tokens` | Exact token counts instead of estimates | `uv tool install "skillrecall[tokens]"` |
+| `dense` | A local embedding model as a second scorer | `uv tool install "skillrecall[dense]"` |
+| `router` | A reference run that asks a model to route a sample of tasks | `uv tool install "skillrecall[router]"` |
+| `all` | Everything above | `uv tool install "skillrecall[all]"` |
 
 ## Use
 
@@ -141,10 +135,18 @@ The method is described step by step in [ALGORITHM.md](ALGORITHM.md). In one par
 ## Development
 
 ```sh
-uv venv && uv pip install -e ".[dev]"
+uv sync --extra dev
 uv run pytest
 uv build
 ```
+
+### Releasing
+
+1. Bump the version: `uv version 0.2.0` (edits `pyproject.toml`), commit.
+2. Tag and push: `git tag v0.2.0 && git push origin main --tags`.
+3. Publish a GitHub release for that tag.
+
+The release workflow checks that the tag matches the package version, runs the tests, builds, publishes to PyPI, and attaches the wheel and sdist to the release. PyPI authentication uses trusted publishing (configure the `pypi` environment and this repository's `publish.yml` as a trusted publisher on the PyPI project), or a `PYPI_API_TOKEN` repository secret if you prefer a token.
 
 ## License
 

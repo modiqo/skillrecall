@@ -1,0 +1,52 @@
+name: Publish
+
+# Publishes to PyPI when a GitHub release is published. The release tag must be
+# `v<version>` and match the version in pyproject.toml, or the job fails before
+# anything is uploaded. Authentication is PyPI trusted publishing (OIDC) by
+# default; a PYPI_API_TOKEN repository secret is used instead when present.
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write   # attach the wheel and sdist to the release
+  id-token: write   # trusted publishing
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: pypi
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check that the tag matches the package version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          version="$(uv version --short)"
+          if [ "$tag" != "$version" ]; then
+            echo "release tag v$tag does not match pyproject version $version" >&2
+            exit 1
+          fi
+          echo "publishing skillrecall $version"
+
+      - name: Test
+        run: |
+          uv sync --extra dev
+          uv run pytest -q
+
+      - name: Build
+        run: uv build
+
+      - name: Publish to PyPI
+        env:
+          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+        run: uv publish
+
+      - name: Attach artifacts to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" dist/* --clobber
